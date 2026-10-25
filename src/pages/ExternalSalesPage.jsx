@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import useExternalSales from '../hooks/useExternalSales.js'
 import { cancelExternalSale, createExternalSale, updateExternalSale } from '../services/sales/externalSales.js'
 
-const channelLabels = { whatsapp: 'WhatsApp', instagram: 'Instagram', presencial: 'Presencial', outro: 'Outro' }
+const channelLabels = { whatsapp: 'WhatsApp', instagram: 'Instagram', mercadolivre: 'Mercado Livre (manual)', presencial: 'Presencial', outro: 'Outro' }
 const paymentLabels = { pending: 'Pendente', partial: 'Parcial', paid: 'Recebido' }
 const deliveryLabels = { pending: 'A combinar', preparing: 'Em preparação', ready: 'Pronto', shipped: 'Enviado', delivered: 'Entregue', pickup: 'Retirada' }
 const emptyItem = () => ({ description: '', quantity: '1', unitPrice: '' })
@@ -146,7 +146,7 @@ function SaleForm({ sale, onClose, onSaved }) {
               <label className="field-span-two">Nome do cliente <b>*</b><input required maxLength={120} value={form.clientName} onChange={(event) => change('clientName', event.target.value)} placeholder="Nome e sobrenome" /></label>
               <label>WhatsApp / telefone<input type="tel" maxLength={30} value={form.phone} onChange={(event) => change('phone', event.target.value)} placeholder="(00) 00000-0000" /></label>
               <label>E-mail <span className="optional-label">opcional</span><input type="email" maxLength={160} value={form.email} onChange={(event) => change('email', event.target.value)} placeholder="cliente@email.com" /></label>
-              <label>Canal da venda <b>*</b><select value={form.channel} onChange={(event) => change('channel', event.target.value)}><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="presencial">Presencial</option><option value="outro">Outro</option></select></label>
+              <label>Canal da venda <b>*</b><select value={form.channel} onChange={(event) => change('channel', event.target.value)}><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="mercadolivre">Mercado Livre (manual)</option><option value="presencial">Presencial</option><option value="outro">Outro</option></select></label>
               <label>Tipo de pedido<select value={form.orderType} onChange={(event) => change('orderType', event.target.value)}><option value="physical">Produto físico</option><option value="online">Pedido online</option></select></label>
               <label>Data da venda <b>*</b><input type="date" required value={form.soldAt} onChange={(event) => change('soldAt', event.target.value)} /></label>
             </div>
@@ -284,7 +284,7 @@ export default function ExternalSalesPage() {
         )}
         <footer className="sales-list-footer"><span>Os cancelamentos preservam o histórico; nenhum registro é apagado.</span><span>{sales.length} no total</span></footer>
       </section>
-      <div className="info-banner"><span>i</span><p>Esses registros são vendas manuais. Pedidos e vendas do Mercado Livre serão integrados em uma etapa posterior.</p></div>
+      <div className="info-banner"><span>i</span><p>Registre as vendas manualmente, inclusive as feitas pelo Mercado Livre. A plataforma não é conectada e os pedidos não são sincronizados automaticamente.</p></div>
       {formOpen && <SaleForm sale={formSale} onClose={() => { setFormOpen(false); setFormSale(null) }} onSaved={notify} />}
       {toast && <div className="toast-success" role="status"><span>✓</span>{toast}</div>}
     </div>

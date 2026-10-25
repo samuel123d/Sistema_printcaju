@@ -56,19 +56,8 @@ O repositório inclui `.env.production` com a configuração pública do Firebas
 
 Use os valores da configuração do app Web em **Firebase Console → Project settings → General**. Depois de salvar alterações no painel, faça um novo deploy. No Firebase Authentication, adicione também o domínio do deploy Vercel aos domínios autorizados. Os valores `VITE_*` são enviados ao navegador; não coloque chaves de serviço ou outros segredos neles.
 
-## Importar anúncios e estoque do Mercado Livre
+## Cadastro manual de produtos e vendas
 
-A integração é somente de leitura no Mercado Livre: importa anúncios ativos, preço e estoque para `users/{UID}/products`. O estoque local é atualizado ao clicar em **Importar anúncios** na área **Produtos → Mercado Livre**. Nenhum anúncio é criado ou alterado no marketplace.
+Por enquanto, a integração com o Mercado Livre está desativada na interface. Cadastre os produtos em **Produtos → Novo produto**, escolhendo o grupo **Vendas online (manual)** ou **Físicos**. Informe nome, código, custo, preço e saldo inicial; ajustes posteriores de estoque ficam na área **Estoque**.
 
-Antes de conectar a conta:
-
-1. No DevCenter do Mercado Livre, crie uma aplicação com permissão de **leitura**, cadastre exatamente esta URI de redirect: `https://sistema-de-controle-de.web.app/mercadolivre/callback` e use `https://southamerica-east1-sistema-de-controle-de.cloudfunctions.net/mercadoLivreNotification` como URL de notificações.
-2. No Firebase, habilite Hosting, Firestore e Cloud Functions. Cloud Functions exige o plano Blaze.
-3. Instale e autentique o Firebase CLI (`npm install -g firebase-tools` e `firebase login`).
-4. Na raiz do projeto, grave as credenciais da aplicação como secrets: `firebase functions:secrets:set ML_APP_ID` e `firebase functions:secrets:set ML_CLIENT_SECRET`.
-5. Publique as funções e o Hosting: `npm run build` e `firebase deploy --only functions,hosting`.
-6. Abra **Produtos → Mercado Livre → Conectar Mercado Livre**, autorize a conta e depois clique em **Importar anúncios**.
-
-O Client Secret e os tokens ficam no Firebase Functions/Firestore do servidor, fora do frontend. A URI cadastrada no DevCenter precisa corresponder à URI de redirect usada pelo servidor. Se o projeto usar domínio próprio no Firebase Hosting, atualize a URI em `functions/index.js` e no DevCenter para o mesmo endereço antes de publicar.
-
-A URL de notificações acima recebe chamadas POST e responde HTTP 200 para confirmá-las. O endpoint registra no log apenas o tópico e o ID do vendedor; as notificações ainda não disparam importação automática. Publique as Cloud Functions antes de cadastrar a URL no DevCenter.
+Registre pedidos e vendas, inclusive os feitos no Mercado Livre, em **Vendas**, selecionando **Mercado Livre (manual)** como canal. Esses dados são lançados somente no sistema e não são sincronizados com a plataforma.
