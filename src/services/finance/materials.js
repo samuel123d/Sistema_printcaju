@@ -66,7 +66,7 @@ export async function loadMaterialPurchaseForTransaction(uid, transactionId) {
   return { ...purchaseSnapshot.data(), id: purchaseSnapshot.id }
 }
 
-export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQuantity, packageUnit, dimensions = {}, updatedBy = uid) {
+export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQuantity, packageUnit, dimensions = {}, updatedBy = uid, materialName = '') {
   const expenseRef = doc(db, 'users', uid, 'financialTransactions', transactionId)
   return runTransaction(db, async (transaction) => {
     const expenseSnapshot = await transaction.get(expenseRef)
@@ -83,7 +83,9 @@ export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQua
     const material = materialSnapshot.data()
     const selectedUnit = purchaseUnits.find((item) => item.value === packageUnit)
     const quantity = Number(packageQuantity)
+    const name = String(materialName).trim()
     if (!selectedUnit || selectedUnit.baseUnit !== material.baseUnit) throw new Error('A unidade precisa corresponder à unidade cadastrada para este material.')
+    if (!name || name.length > 120) throw new Error('Informe um nome de material com até 120 caracteres.')
     if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('A quantidade comprada precisa ser maior que zero.')
     const nextBaseQuantity = calculatePurchaseBaseQuantity(quantity, packageUnit, dimensions)
     const oldBaseQuantity = Number(purchase.baseQuantity) || 0
@@ -96,8 +98,9 @@ export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQua
     const nextUnitCost = nextStock > 0 ? nextValue / nextStock : Number(material.unitCost) || 0
     if (!Number.isFinite(nextUnitCost)) throw new Error('O custo médio calculado está fora do intervalo permitido.')
 
-    transaction.update(materialRef, { stockQuantity: nextStock, unitCost: nextUnitCost, updatedAt: serverTimestamp() })
+    transaction.update(materialRef, { name, stockQuantity: nextStock, unitCost: nextUnitCost, updatedAt: serverTimestamp() })
     transaction.update(purchaseRef, {
+      materialName: name,
       packageQuantity: quantity,
       packageUnit,
       ...(selectedUnit.dimensions ? {
@@ -111,6 +114,7 @@ export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQua
       updatedBy,
     })
     transaction.update(expenseRef, {
+      description: `Compra de material: ${name}`,
       notes: `Entrada de ${quantity} ${packageUnit} no estoque de materiais.`,
       updatedAt: serverTimestamp(),
     })

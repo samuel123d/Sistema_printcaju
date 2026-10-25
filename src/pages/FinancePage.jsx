@@ -143,6 +143,7 @@ function HistoryStockImport({ entry, materials, onCancel, onImported }) {
 function HistoryStockEditor({ entry, onCancel, onSaved }) {
   const { user, workspaceUid } = useAuth()
   const [purchase, setPurchase] = useState(null)
+  const [materialName, setMaterialName] = useState('')
   const [packageQuantity, setPackageQuantity] = useState('')
   const [packageUnit, setPackageUnit] = useState('')
   const [packageWidth, setPackageWidth] = useState('')
@@ -157,6 +158,7 @@ function HistoryStockEditor({ entry, onCancel, onSaved }) {
     loadMaterialPurchaseForTransaction(workspaceUid, entry.id).then((result) => {
       if (!active) return
       setPurchase(result)
+      setMaterialName(result.materialName || '')
       setPackageQuantity(String(result.packageQuantity))
       setPackageUnit(result.packageUnit)
       setPackageWidth(String(result.packageWidth ?? ''))
@@ -174,6 +176,7 @@ function HistoryStockEditor({ entry, onCancel, onSaved }) {
   async function submit(event) {
     event.preventDefault()
     setError('')
+    if (!materialName.trim()) return setError('Informe o nome do material.')
     if (!Number.isFinite(Number(packageQuantity)) || Number(packageQuantity) <= 0) return setError('Informe uma quantidade maior que zero.')
     setSaving(true)
     try {
@@ -181,8 +184,8 @@ function HistoryStockEditor({ entry, onCancel, onSaved }) {
         width: packageWidth,
         length: packageLength,
         dimensionUnit,
-      }, user.uid)
-      onSaved('Quantidade e unidade da compra atualizadas no histórico e no estoque.')
+      }, user.uid, materialName.trim())
+      onSaved('Nome, quantidade e unidade atualizados no histórico e no estoque.')
     } catch (cause) {
       setError(cause.message || 'Não foi possível atualizar a compra e o estoque.')
     } finally {
@@ -191,7 +194,7 @@ function HistoryStockEditor({ entry, onCancel, onSaved }) {
   }
 
   return <tr className="history-stock-import-row"><td colSpan="7">{loading ? <div className="sales-loading">Carregando dados da compra…</div> : <form className="finance-form history-stock-import" onSubmit={submit}>
-    <div className="history-stock-import-total">Material: <strong>{purchase?.materialName || '—'}</strong></div>
+    <label>Nome do material<input required maxLength="120" value={materialName} onChange={(event) => setMaterialName(event.target.value)} /></label>
     <label>{purchaseUnits.find((unit) => unit.value === packageUnit)?.dimensions ? 'Quantidade de rolos/placas' : 'Quantidade comprada'}<input type="number" min="0.001" step="any" required value={packageQuantity} onChange={(event) => setPackageQuantity(event.target.value)} /></label>
     <label>Unidade<select required value={packageUnit} onChange={(event) => {
       const nextUnit = event.target.value
@@ -210,7 +213,7 @@ function HistoryStockEditor({ entry, onCancel, onSaved }) {
     </>}
     <div className="history-stock-import-total">Valor da compra: <strong>{money(entry.amount)}</strong></div>
     {error && <div className="alert alert-error history-stock-import-error" role="alert">{error}</div>}
-    {!loading && <div className="finance-form-actions"><button type="button" className="button button-secondary" onClick={onCancel}>Cancelar</button><button className="button button-primary" disabled={saving || !purchase}>{saving ? 'Atualizando…' : 'Salvar quantidade e estoque'}</button></div>}
+    {!loading && <div className="finance-form-actions"><button type="button" className="button button-secondary" onClick={onCancel}>Cancelar</button><button className="button button-primary" disabled={saving || !purchase}>{saving ? 'Atualizando…' : 'Salvar nome, quantidade e estoque'}</button></div>}
   </form>}</td></tr>
 }
 
