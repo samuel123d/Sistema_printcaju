@@ -1,9 +1,26 @@
-import { collection, doc, getDoc, onSnapshot, orderBy, query, runTransaction, serverTimestamp } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 import { calculatePurchaseBaseQuantity, purchaseUnits } from './units.js'
 import { calculateWeightedUnitCost } from './costing.js'
 
 const materialsCollection = (uid) => collection(db, 'users', uid, 'materials')
+
+export function archiveMaterial(uid, materialId) {
+  return updateDoc(doc(db, 'users', uid, 'materials', materialId), { active: false, updatedAt: serverTimestamp() })
+}
+
+export function restoreMaterial(uid, materialId) {
+  return updateDoc(doc(db, 'users', uid, 'materials', materialId), { active: true, updatedAt: serverTimestamp() })
+}
+
+export async function deleteArchivedMaterial(uid, materialId) {
+  const purchases = await getDocs(query(
+    collection(db, 'users', uid, 'materialPurchases'),
+    where('materialId', '==', materialId),
+  ))
+  if (!purchases.empty) throw new Error('Este material ainda tem compras no histórico. Exclua primeiro os lançamentos vinculados no Financeiro para preservar os saldos.')
+  return deleteDoc(doc(db, 'users', uid, 'materials', materialId))
+}
 
 export function watchMaterials(uid, onRows, onError) {
   return onSnapshot(query(materialsCollection(uid), orderBy('name')), (snapshot) => {
@@ -97,6 +114,41 @@ export function updateMaterialPurchaseFromHistory(uid, transactionId, packageQua
       notes: `Entrada de ${quantity} ${packageUnit} no estoque de materiais.`,
       updatedAt: serverTimestamp(),
     })
+  })
+}
+
+export function deleteMaterialPurchaseFromHistory(uid, transactionId) {
+  const expenseRef = doc(db, 'users', uid, 'financialTransactions', transactionId)
+  return runTransaction(db, async (transaction) => {
+    const expenseSnapshot = await transaction.get(expenseRef)
+    if (!expenseSnapshot.exists()) throw new Error('O lançamento financeiro não foi encontrado.')
+    const expense = expenseSnapshot.data()
+    if (!expense.sourceMaterialPurchaseId || expense.status === 'cancelled') throw new Error('Esta compra não está ativa no estoque.')
+    const purchaseRef = doc(db, 'users', uid, 'materialPurchases', expense.sourceMaterialPurchaseId)
+    const purchaseSnapshot = await transaction.get(purchaseRef)
+    if (!purchaseSnapshot.exists()) throw new Error('A compra vinculada ao estoque não foi encontrada.')
+    const purchase = purchaseSnapshot.data()
+    const materialRef = doc(db, 'users', uid, 'materials', purchase.materialId)
+    const materialSnapshot = await transaction.get(materialRef)
+    if (!materialSnapshot.exists()) throw new Error('O material vinculado à compra não foi encontrado; não foi possível ajustar o estoque.')
+    const material = materialSnapshot.data()
+    const currentQuantity = Number(material.stockQuantity) || 0
+    const purchasedQuantity = Number(purchase.baseQuantity) || 0
+    const nextQuantity = currentQuantity - purchasedQuantity
+    if (!Number.isFinite(purchasedQuantity) || purchasedQuantity <= 0 || nextQuantity < -1e-8) {
+      throw new Error('O estoque atual já foi consumido ou ajustado. Não é seguro excluir esta compra.')
+    }
+    const remainingValue = currentQuantity * (Number(material.unitCost) || 0) - (Number(purchase.total) || Number(expense.amount) || 0)
+    if (nextQuantity > 0 && remainingValue < -1e-8) {
+      throw new Error('Não foi possível recalcular o custo médio com o saldo atual. Ajuste o estoque antes de excluir esta compra.')
+    }
+    transaction.update(materialRef, {
+      stockQuantity: Math.max(0, nextQuantity),
+      unitCost: nextQuantity > 1e-8 ? Math.max(0, remainingValue) / nextQuantity : 0,
+      updatedAt: serverTimestamp(),
+    })
+    transaction.delete(purchaseRef)
+    transaction.delete(expenseRef)
   })
 }
 

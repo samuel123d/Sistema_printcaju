@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { watchMaterials } from '../services/finance/materials.js'
 
-export default function useFinancialMaterials() {
+export default function useFinancialMaterials({ includeArchived = false } = {}) {
   const { workspaceUid } = useAuth()
   const [materials, setMaterials] = useState([])
   const [loading, setLoading] = useState(true)
@@ -17,7 +17,7 @@ export default function useFinancialMaterials() {
     setLoading(true)
     setError('')
     return watchMaterials(workspaceUid, (rows) => {
-      setMaterials(rows.filter((item) => item.active !== false))
+      setMaterials(includeArchived ? rows : rows.filter((item) => item.active !== false))
       setLoading(false)
     }, (cause) => {
       console.error('Não foi possível carregar o estoque de materiais.', cause)
@@ -26,7 +26,7 @@ export default function useFinancialMaterials() {
         : 'Não foi possível carregar os materiais. Verifique sua conexão.')
       setLoading(false)
     })
-  }, [workspaceUid])
+  }, [workspaceUid, includeArchived])
 
   return { materials, loading, error }
 }

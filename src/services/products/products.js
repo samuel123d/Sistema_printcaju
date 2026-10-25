@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 
 const productCollection = (uid) => collection(db, 'users', uid, 'products')

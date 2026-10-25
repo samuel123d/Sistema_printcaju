@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 
 const transactionsCollection = (uid) => collection(db, 'users', uid, 'financialTransactions')
@@ -32,4 +32,8 @@ export function voidFinancialTransaction(uid, transactionId) {
     cancelledAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
+}
+
+export function deleteFinancialTransaction(uid, transactionId) {
+  return deleteDoc(doc(db, 'users', uid, 'financialTransactions', transactionId))
 }

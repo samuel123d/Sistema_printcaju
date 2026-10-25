@@ -1,10 +1,11 @@
 ﻿import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
 import useProducts from '../hooks/useProducts.js'
 import { formatUnit } from '../services/finance/units.js'
-import { adjustProductStock } from '../services/products/products.js'
-import { updateMaterialStock } from '../services/finance/materials.js'
+import { adjustProductStock, archiveProduct } from '../services/products/products.js'
+import { archiveMaterial, deleteArchivedMaterial, restoreMaterial, updateMaterialStock } from '../services/finance/materials.js'
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0)
 const unitCostMoney = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 6 }).format(Number(value) || 0)
@@ -56,22 +57,70 @@ function MaterialStockEditor({ material, onClose, onSaved }) {
 }
 
 export default function InventoryPage() {
+  const navigate = useNavigate()
+  const { workspaceUid } = useAuth()
   const { products, loading, error } = useProducts()
-  const { materials, loading: materialsLoading, error: materialsError } = useFinancialMaterials()
+  const { materials: allMaterials, loading: materialsLoading, error: materialsError } = useFinancialMaterials({ includeArchived: true })
   const [search, setSearch] = useState('')
   const [inventoryType, setInventoryType] = useState('all')
   const [adjusting, setAdjusting] = useState(null)
   const [editingMaterial, setEditingMaterial] = useState(null)
   const [toast, setToast] = useState('')
+  const [actionError, setActionError] = useState('')
   const searchableProducts = useMemo(() => products.filter((product) => product.active !== false && product.type === 'fisico' && matchesSearch(`${product.name} ${product.sku || ''} ${product.category || ''}`, search)), [products, search])
-  const searchableMaterials = useMemo(() => materials.filter((material) => matchesSearch(material.name, search)), [materials, search])
+  const materials = allMaterials.filter((material) => material.active !== false)
+  const archivedMaterials = allMaterials.filter((material) => material.active === false && matchesSearch(material.name, search))
+  const searchableMaterials = useMemo(() => materials.filter((material) => matchesSearch(material.name, search)), [allMaterials, search])
   const productList = inventoryType === 'material' || inventoryType === 'other' ? [] : searchableProducts
-  const materialList = inventoryType === 'product' || inventoryType === 'other' ? [] : searchableMaterials
+  const materialList = inventoryType === 'product' || inventoryType === 'archived' ? [] : searchableMaterials
   const lowStock = searchableProducts.filter((product) => Number(product.quantity) <= Number(product.minStock)).length
     + searchableMaterials.filter((material) => Number(material.stockQuantity) <= Number(material.minStock)).length
   const inventoryItemCount = searchableProducts.length + searchableMaterials.length
   const loadingInventory = loading || materialsLoading
   function saved(message) { setAdjusting(null); setEditingMaterial(null); setToast(message); window.setTimeout(() => setToast(''), 3200) }
+  async function removeProduct(product) {
+    if (!window.confirm(`Remover “${product.name}” do estoque ativo? O produto será arquivado e as vendas e movimentações anteriores serão preservadas.`)) return
+    setActionError('')
+    try {
+      await archiveProduct(workspaceUid, product.id)
+      setToast('Produto arquivado e removido do estoque ativo.')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (cause) {
+      setActionError(cause.message || 'Não foi possível arquivar o produto.')
+    }
+  }
+  async function removeMaterial(material) {
+    if (!window.confirm(`Remover “${material.name}” do estoque ativo? O cadastro será arquivado e compras e históricos serão preservados.`)) return
+    setActionError('')
+    try {
+      await archiveMaterial(workspaceUid, material.id)
+      setToast('Material arquivado e removido do estoque ativo.')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (cause) {
+      setActionError(cause.message || 'Não foi possível arquivar o material.')
+    }
+  }
+  async function restoreArchivedMaterial(material) {
+    setActionError('')
+    try {
+      await restoreMaterial(workspaceUid, material.id)
+      setToast('Material restaurado no estoque.')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (cause) {
+      setActionError(cause.message || 'Não foi possível restaurar o material.')
+    }
+  }
+  async function deleteMaterial(material) {
+    if (!window.confirm(`Excluir permanentemente o cadastro de “${material.name}”? O saldo restante será removido. Os registros históricos sem vínculo de compra serão mantidos.`)) return
+    setActionError('')
+    try {
+      await deleteArchivedMaterial(workspaceUid, material.id)
+      setToast('Cadastro do material excluído permanentemente.')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (cause) {
+      setActionError(cause.message || 'Não foi possível excluir o material.')
+    }
+  }
 
   return <div className="page-stack">
     <div className="page-intro"><div><p className="eyebrow">OPERAÇÃO</p><h2>Estoque</h2><p>Acompanhe produtos físicos, materiais e insumos em um só lugar. Produtos de venda online não aparecem aqui.</p></div></div>
@@ -80,13 +129,13 @@ export default function InventoryPage() {
       <button type="button" role="tab" aria-selected={inventoryType === 'all'} className={inventoryType === 'all' ? 'product-tab-active' : ''} onClick={() => setInventoryType('all')}><span>Todos</span><b>{inventoryItemCount}</b></button>
       <button type="button" role="tab" aria-selected={inventoryType === 'product'} className={inventoryType === 'product' ? 'product-tab-active' : ''} onClick={() => setInventoryType('product')}><span>Produtos</span><b>{searchableProducts.length}</b></button>
       <button type="button" role="tab" aria-selected={inventoryType === 'material'} className={inventoryType === 'material' ? 'product-tab-active' : ''} onClick={() => setInventoryType('material')}><span>Materiais</span><b>{searchableMaterials.length}</b></button>
-      <button type="button" role="tab" aria-selected={inventoryType === 'other'} className={inventoryType === 'other' ? 'product-tab-active' : ''} onClick={() => setInventoryType('other')}><span>Outros</span><b>0</b></button>
+      <button type="button" role="tab" aria-selected={inventoryType === 'archived'} className={inventoryType === 'archived' ? 'product-tab-active' : ''} onClick={() => setInventoryType('archived')}><span>Arquivados</span><b>{archivedMaterials.length}</b></button>
     </div>
-    <section className="panel products-panel"><div className="products-toolbar"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto, SKU ou material" /></label><span className="count-chip">{productList.length + materialList.length} itens</span></div>{(error || materialsError) && <div className="sales-error" role="alert">{error || materialsError}</div>}
+    <section className="panel products-panel"><div className="products-toolbar"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto, SKU ou material" /></label><span className="count-chip">{inventoryType === 'archived' ? archivedMaterials.length : productList.length + materialList.length} itens</span></div>{(error || materialsError || actionError) && <div className="sales-error" role="alert">{actionError || error || materialsError}</div>}
       {loadingInventory ? <div className="sales-loading">Carregando estoque…</div> : <div className="sales-table-scroll"><table className="sales-table products-table"><thead><tr><th>Produto ou material</th><th>Tipo / SKU</th><th>Saldo atual</th><th>Estoque mínimo</th><th>Custo unitário</th><th>Valor em estoque</th><th>Ação</th></tr></thead><tbody>
-        {productList.map((product) => { const low = Number(product.quantity) <= Number(product.minStock); return <tr key={`product-${product.id}`} className={low ? 'stock-low-row' : ''}><td><strong className="table-primary-text">{product.name}</strong><small>{product.category || 'Produto físico'}</small></td><td>{product.sku || 'Produto físico'}</td><td><strong>{Number(product.quantity) || 0}</strong>{low && <small className="stock-alert-text">Estoque baixo</small>}</td><td>{Number(product.minStock) || 0}</td><td>{money(product.cost)}</td><td>{money((Number(product.quantity) || 0) * (Number(product.cost) || 0))}</td><td><button className="button button-secondary stock-adjust-button" onClick={() => setAdjusting(product)}>Ajustar saldo</button></td></tr>})}
-        {materialList.map((material) => { const low = Number(material.stockQuantity) <= Number(material.minStock); return <tr key={`material-${material.id}`} className={low ? 'stock-low-row' : ''}><td><strong className="table-primary-text">{material.name}</strong><small>Material / insumo</small></td><td>{formatUnit(material.baseUnit)}</td><td><strong>{Number(material.stockQuantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</strong>{low && <small className="stock-alert-text">Estoque baixo</small>}</td><td>{Number(material.minStock || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</td><td>{unitCostMoney(material.unitCost)} / {formatUnit(material.baseUnit)}</td><td>{money((Number(material.stockQuantity) || 0) * (Number(material.unitCost) || 0))}</td><td><button className="button button-secondary stock-adjust-button" onClick={() => setEditingMaterial(material)}>Editar estoque</button></td></tr>})}
-        {inventoryType === 'other' ? <tr><td colSpan="7"><div className="table-empty"><strong>Outros itens ainda não estão disponíveis</strong><span>O estoque atualmente organiza produtos físicos e materiais/insumos.</span></div></td></tr> : productList.length + materialList.length === 0 && <tr><td colSpan="7"><div className="table-empty"><strong>Nenhum item encontrado no estoque</strong><span>Cadastre produtos físicos em Produtos e materiais/insumos no Financeiro.</span></div></td></tr>}
+        {inventoryType !== 'archived' && productList.map((product) => { const low = Number(product.quantity) <= Number(product.minStock); return <tr key={`product-${product.id}`} className={low ? 'stock-low-row' : ''}><td><strong className="table-primary-text">{product.name}</strong><small>{product.category || 'Produto físico'}</small></td><td>{product.sku || 'Produto físico'}</td><td><strong>{Number(product.quantity) || 0}</strong>{low && <small className="stock-alert-text">Estoque baixo</small>}</td><td>{Number(product.minStock) || 0}</td><td>{money(product.cost)}</td><td>{money((Number(product.quantity) || 0) * (Number(product.cost) || 0))}</td><td><div className="sale-actions"><button type="button" onClick={() => navigate('/produtos', { state: { editProductId: product.id } })}>Editar nome</button><button type="button" className="button button-secondary stock-adjust-button" onClick={() => setAdjusting(product)}>Ajustar saldo</button><button type="button" className="cancel-action" onClick={() => removeProduct(product)}>Excluir do estoque</button></div></td></tr>})}
+        {inventoryType === 'archived' ? archivedMaterials.map((material) => <tr key={`archived-${material.id}`}><td><strong className="table-primary-text">{material.name}</strong><small>Material arquivado · histórico preservado</small></td><td>{formatUnit(material.baseUnit)}</td><td>{Number(material.stockQuantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</td><td>{Number(material.minStock || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</td><td>{unitCostMoney(material.unitCost)} / {formatUnit(material.baseUnit)}</td><td>{money((Number(material.stockQuantity) || 0) * (Number(material.unitCost) || 0))}</td><td><div className="sale-actions"><button type="button" onClick={() => restoreArchivedMaterial(material)}>Restaurar</button><button type="button" className="cancel-action" onClick={() => deleteMaterial(material)}>Excluir definitivamente</button></div></td></tr>) : materialList.map((material) => { const low = Number(material.stockQuantity) <= Number(material.minStock); return <tr key={`material-${material.id}`} className={low ? 'stock-low-row' : ''}><td><strong className="table-primary-text">{material.name}</strong><small>Material / insumo</small></td><td>{formatUnit(material.baseUnit)}</td><td><strong>{Number(material.stockQuantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</strong>{low && <small className="stock-alert-text">Estoque baixo</small>}</td><td>{Number(material.minStock || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(material.baseUnit)}</td><td>{unitCostMoney(material.unitCost)} / {formatUnit(material.baseUnit)}</td><td>{money((Number(material.stockQuantity) || 0) * (Number(material.unitCost) || 0))}</td><td><div className="sale-actions"><button type="button" onClick={() => setEditingMaterial(material)}>Editar estoque</button><button type="button" className="cancel-action" onClick={() => removeMaterial(material)}>Excluir do estoque</button></div></td></tr>})}
+        {inventoryType === 'archived' && archivedMaterials.length === 0 ? <tr><td colSpan="7"><div className="table-empty"><strong>Nenhum material arquivado</strong><span>Itens removidos do estoque ativo aparecerão aqui e poderão ser restaurados.</span></div></td></tr> : inventoryType !== 'archived' && productList.length + materialList.length === 0 && <tr><td colSpan="7"><div className="table-empty"><strong>Nenhum item encontrado no estoque</strong><span>Cadastre produtos físicos em Produtos e materiais/insumos no Financeiro.</span></div></td></tr>}
       </tbody></table></div>}
     </section>
     <div className="info-banner"><span>i</span><p>Ajuste os saldos dos produtos físicos nesta tela. Cadastre materiais e registre compras pelo Financeiro; seus saldos e custos médios aparecem aqui automaticamente. Produtos de venda online ficam fora do estoque.</p></div>

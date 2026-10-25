@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
 import useProducts from '../hooks/useProducts.js'
@@ -130,6 +131,8 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
 }
 
 export default function ProductsPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const { workspaceUid } = useAuth()
   const { products, loading, error } = useProducts()
   const { materials, loading: materialsLoading, error: materialsError } = useFinancialMaterials()
@@ -143,6 +146,22 @@ export default function ProductsPage() {
   const list = useMemo(() => products.filter((product) => (showArchived ? product.active === false : product.active !== false && product.type === type) && `${product.name} ${product.sku} ${product.category}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))), [products, type, search, showArchived])
   const counts = { mercadolivre: products.filter((item) => item.active !== false && item.type === 'mercadolivre').length, fisico: products.filter((item) => item.active !== false && item.type === 'fisico').length }
   const archivedCount = products.filter((item) => item.active === false).length
+
+  useEffect(() => {
+    const productId = location.state?.editProductId
+    if (!productId || loading) return
+    const product = products.find((item) => item.id === productId && item.active !== false)
+    navigate(location.pathname, { replace: true, state: null })
+    if (product) {
+      setType(product.type)
+      setShowArchived(false)
+      setEditing(product)
+      setFormOpen(true)
+      setActionError('')
+    } else {
+      setActionError('Não foi possível encontrar o produto para editar.')
+    }
+  }, [location.pathname, location.state, loading, products, navigate])
 
   function saved(message) { setFormOpen(false); setEditing(null); setToast(message); window.setTimeout(() => setToast(''), 3000) }
   async function archive(product) {

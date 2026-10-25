@@ -3,9 +3,10 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
 import useFinancialTransactions from '../hooks/useFinancialTransactions.js'
-import { createMaterialPurchase, importHistoricalMaterialPurchase, loadMaterialPurchaseForTransaction, updateMaterialPurchaseFromHistory } from '../services/finance/materials.js'
+import { createMaterialPurchase, deleteMaterialPurchaseFromHistory, importHistoricalMaterialPurchase, loadMaterialPurchaseForTransaction, updateMaterialPurchaseFromHistory } from '../services/finance/materials.js'
 import { calculatePurchaseBaseQuantity, formatUnit, purchaseUnits } from '../services/finance/units.js'
-import { createFinancialTransaction, updateFinancialTransaction, voidFinancialTransaction } from '../services/finance/transactions.js'
+import { createFinancialTransaction, deleteFinancialTransaction, updateFinancialTransaction, voidFinancialTransaction } from '../services/finance/transactions.js'
+import { deleteLegacyPurchaseFromHistory } from '../services/inventory/purchases.js'
 
 const categories = {
   income: [
@@ -341,6 +342,32 @@ export default function FinancePage() {
     }
   }
 
+  async function deleteEntry(entry) {
+    const linkedMaterialPurchase = Boolean(entry.sourceMaterialPurchaseId)
+    const confirmation = linkedMaterialPurchase
+      ? `Excluir a compra “${entry.description}” e retirar a quantidade correspondente do estoque? O histórico financeiro e a compra vinculada serão removidos.`
+      : entry.sourcePurchaseId
+        ? `Excluir a compra “${entry.description}” e retirar a quantidade correspondente do estoque do produto? O histórico financeiro e a compra vinculada serão removidos.`
+      : `Excluir permanentemente o lançamento “${entry.description}”? Esta ação não pode ser desfeita.`
+    if (!window.confirm(confirmation)) return
+    setBusyId(entry.id)
+    setMessage('')
+    setError('')
+    try {
+      if (linkedMaterialPurchase) await deleteMaterialPurchaseFromHistory(workspaceUid, entry.id)
+      else if (entry.sourcePurchaseId) await deleteLegacyPurchaseFromHistory(workspaceUid, entry.id)
+      else await deleteFinancialTransaction(workspaceUid, entry.id)
+      if (editingId === entry.id) resetForm()
+      if (editingHistoryId === entry.id) setEditingHistoryId('')
+      if (importingHistoryId === entry.id) setImportingHistoryId('')
+      setMessage(entry.sourceMaterialPurchaseId || entry.sourcePurchaseId ? 'Compra e lançamento excluídos; estoque ajustado.' : 'Lançamento excluído permanentemente.')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   const loading = salesLoading || transactionsLoading
   const loadError = salesError || transactionsError
   const selectedMaterial = materials.find((item) => item.id === materialForm.materialId)
@@ -436,7 +463,7 @@ export default function FinancePage() {
           <td>{paymentLabels[entry.paymentMethod] || 'Outro'}</td>
           <td><span className={`finance-kind finance-kind-${entry.type}`}>{cancelled ? 'Estornado' : entry.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
           <td className={`finance-amount finance-amount-${entry.type}`}>{entry.type === 'income' ? '+' : '−'} {money(entry.amount)}</td>
-          <td><div className="finance-row-actions"><button type="button" disabled={cancelled || busyId === entry.id || saving} onClick={() => materialPurchase ? setEditingHistoryId(editingHistoryId === entry.id ? '' : entry.id) : startEdit(entry)}>{materialPurchase ? editingHistoryId === entry.id ? 'Fechar edição' : 'Editar quantidade' : 'Editar'}</button><button type="button" className="finance-void-action" title={materialPurchase ? 'Ajuste as compras pelo estoque de materiais para manter os saldos corretos.' : undefined} disabled={materialPurchase || cancelled || busyId === entry.id || saving} onClick={() => voidEntry(entry)}>{busyId === entry.id ? 'Estornando…' : 'Estornar'}</button>{canImportStock && <button type="button" onClick={() => setImportingHistoryId(importingHistoryId === entry.id ? '' : entry.id)}>{importingHistoryId === entry.id ? 'Fechar estoque' : 'Incluir no estoque'}</button>}</div></td>
+          <td><div className="finance-row-actions"><button type="button" disabled={cancelled || busyId === entry.id || saving} onClick={() => materialPurchase ? setEditingHistoryId(editingHistoryId === entry.id ? '' : entry.id) : startEdit(entry)}>{materialPurchase ? editingHistoryId === entry.id ? 'Fechar edição' : 'Editar quantidade' : 'Editar'}</button><button type="button" className="finance-void-action" title={materialPurchase ? 'Estornar não é permitido para uma compra vinculada ao estoque.' : undefined} disabled={materialPurchase || cancelled || busyId === entry.id || saving} onClick={() => voidEntry(entry)}>{busyId === entry.id ? 'Processando…' : 'Estornar'}</button><button type="button" className="finance-void-action" disabled={busyId === entry.id || saving || (cancelled && materialPurchase)} onClick={() => deleteEntry(entry)}>{busyId === entry.id ? 'Excluindo…' : 'Excluir'}</button>{canImportStock && <button type="button" onClick={() => setImportingHistoryId(importingHistoryId === entry.id ? '' : entry.id)}>{importingHistoryId === entry.id ? 'Fechar estoque' : 'Incluir no estoque'}</button>}</div></td>
         </tr>, ...(importingHistoryId === entry.id && canImportStock ? [<HistoryStockImport key={`${entry.id}-stock-import`} entry={entry} materials={materials} onCancel={() => setImportingHistoryId('')} onImported={(successMessage) => { setImportingHistoryId(''); setMessage(successMessage) }} />] : []), ...(editingHistoryId === entry.id && materialPurchase && !cancelled ? [<HistoryStockEditor key={`${entry.id}-stock-edit`} entry={entry} onCancel={() => setEditingHistoryId('')} onSaved={(successMessage) => { setEditingHistoryId(''); setMessage(successMessage) }} />] : [])]
       })}</tbody></table></div>}
     </section>
