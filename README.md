@@ -62,11 +62,13 @@ A integração é somente de leitura no Mercado Livre: importa anúncios ativos,
 
 Antes de conectar a conta:
 
-1. No DevCenter do Mercado Livre, crie uma aplicação com permissão de **leitura** e cadastre exatamente esta URI de redirect: `https://sistema-de-controle-de.web.app/mercadolivre/callback`.
+1. No DevCenter do Mercado Livre, crie uma aplicação com permissão de **leitura**, cadastre exatamente esta URI de redirect: `https://sistema-de-controle-de.web.app/mercadolivre/callback` e use `https://southamerica-east1-sistema-de-controle-de.cloudfunctions.net/mercadoLivreNotification` como URL de notificações.
 2. No Firebase, habilite Hosting, Firestore e Cloud Functions. Cloud Functions exige o plano Blaze.
 3. Instale e autentique o Firebase CLI (`npm install -g firebase-tools` e `firebase login`).
 4. Na raiz do projeto, grave as credenciais da aplicação como secrets: `firebase functions:secrets:set ML_APP_ID` e `firebase functions:secrets:set ML_CLIENT_SECRET`.
-5. Gere a versão web e publique: `npm run build` e `firebase deploy --only functions,hosting`.
+5. Publique as funções e o Hosting: `npm run build` e `firebase deploy --only functions,hosting`.
 6. Abra **Produtos → Mercado Livre → Conectar Mercado Livre**, autorize a conta e depois clique em **Importar anúncios**.
 
 O Client Secret e os tokens ficam no Firebase Functions/Firestore do servidor, fora do frontend. A URI cadastrada no DevCenter precisa corresponder à URI de redirect usada pelo servidor. Se o projeto usar domínio próprio no Firebase Hosting, atualize a URI em `functions/index.js` e no DevCenter para o mesmo endereço antes de publicar.
+
+A URL de notificações acima recebe chamadas POST e responde HTTP 200 para confirmá-las. O endpoint registra no log apenas o tópico e o ID do vendedor; as notificações ainda não disparam importação automática. Publique as Cloud Functions antes de cadastrar a URL no DevCenter.

@@ -73,6 +73,16 @@ export const mercadoLivreCallback = onRequest({ region: REGION, secrets: [ML_APP
   }
 })
 
+export const mercadoLivreNotification = onRequest({ region: REGION, cors: false }, async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).send('Method not allowed')
+  const { topic, user_id: userId } = req.body || {}
+  console.info('Notificação recebida do Mercado Livre.', {
+    topic: typeof topic === 'string' ? topic : 'unknown',
+    userId: typeof userId === 'string' || typeof userId === 'number' ? userId : undefined,
+  })
+  return res.sendStatus(200)
+})
+
 async function getAccessToken(integrationRef, integration) {
   if (integration.expiresAt > Date.now() + 60_000) return integration.accessToken
   const response = await fetch(`${API}/oauth/token`, {
