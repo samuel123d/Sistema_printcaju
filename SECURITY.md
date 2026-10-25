@@ -6,6 +6,7 @@
 - Contas `user` não entram no painel nem acessam dados operacionais.
 - O documento `users/{UID}` pode ser lido pela própria conta, mas criação, edição e exclusão de funções são negadas pelo cliente. Atribua funções pelo Console Firebase ou por um processo confiável com Admin SDK.
 - Vendas, financeiro, produtos, estoque e configurações de pagamento ficam sob `users/{UID do administrador principal}/...`, usando o UID em `_system/owner`. Todas as contas `admin` compartilham esses dados. Perfil e preferências visuais continuam vinculados ao UID de cada administrador.
+- Os dados da empresa usados em orçamentos e comprovantes ficam no documento compartilhado `users/{UID do administrador principal}/settings/business`; somente administradores podem ler e alterar esses dados.
 - Regras negam acesso por padrão. Publique `firestore.rules` no projeto Firebase para aplicar as proteções e o compartilhamento.
 
 ## Configuração Firebase

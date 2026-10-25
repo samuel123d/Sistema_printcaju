@@ -14,8 +14,20 @@ export const DEFAULT_PREFERENCES = {
   businessName: 'Print Caju',
 }
 
+export const DEFAULT_BUSINESS_DETAILS = {
+  name: 'Print Caju',
+  taxId: '',
+  phone: '',
+  email: '',
+  address: '',
+  city: '',
+  state: '',
+  postalCode: '',
+}
+
 const preferencesRef = (uid) => doc(db, 'users', uid, 'settings', 'preferences')
 const profileRef = (uid) => doc(db, 'users', uid, 'settings', 'profile')
+const businessDetailsRef = (uid) => doc(db, 'users', uid, 'settings', 'business')
 
 export function watchPreferences(uid, onValue, onError) {
   return onSnapshot(preferencesRef(uid), (snapshot) => onValue({ ...DEFAULT_PREFERENCES, ...(snapshot.exists() ? snapshot.data() : {}) }), onError)
@@ -27,6 +39,14 @@ export function watchProfile(uid, onValue, onError) {
 
 export function savePreferences(uid, preferences) {
   return setDoc(preferencesRef(uid), { ...preferences, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+export function watchBusinessDetails(uid, onValue, onError) {
+  return onSnapshot(businessDetailsRef(uid), (snapshot) => onValue({ ...DEFAULT_BUSINESS_DETAILS, ...(snapshot.exists() ? snapshot.data() : {}) }), onError)
+}
+
+export function saveBusinessDetails(uid, details) {
+  return setDoc(businessDetailsRef(uid), { ...details, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 export async function saveProfile(uid, { displayName }) {

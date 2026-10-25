@@ -570,3 +570,56 @@ input, select, textarea { accent-color: var(--accent); }
 .dashboard-quick-actions { display: flex; flex-wrap: wrap; gap: 17px; }
 @media (max-width: 1100px) { .dashboard-operation-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 720px) { .dashboard-page { gap: 18px; }.dashboard-page .welcome-banner { min-height: 145px; }.dashboard-page .banner-mark { right: 8px; width: 76px; height: 76px; opacity: .9; }.dashboard-operation-grid { gap: 8px; }.dashboard-operation-card { gap: 8px; padding: 12px 10px; }.dashboard-operation-icon { width: 28px; height: 28px; }.dashboard-detail-grid { grid-template-columns: 1fr; }.dashboard-quick-links { align-items: flex-start; flex-direction: column; }.dashboard-quick-actions { gap: 10px; } }
+.product-cost-section { margin-top: 18px; padding: 18px 0; border-top: 1px solid var(--line); }
+.product-cost-section h3 { margin: 0; color: var(--text); font-size: 13px; }
+.product-cost-section .form-section-title p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+.product-recipe-list { display: grid; gap: 10px; }
+.product-recipe-row { display: grid; grid-template-columns: minmax(150px, 1.5fr) minmax(110px, 1fr) minmax(110px, .8fr) auto; align-items: end; gap: 10px; }
+.product-recipe-row label, .product-overhead-grid label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.product-recipe-row input, .product-recipe-row select { width: 100%; min-width: 0; height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-background); color: var(--text); font-size: 11px; }
+.product-recipe-cost { display: grid; gap: 4px; min-height: 36px; align-content: center; }
+.product-recipe-cost small, .product-cost-hint { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.product-recipe-cost strong { color: var(--text); font-size: 11px; }
+.product-cost-hint { margin: 10px 0 0; }
+.product-overhead-grid { margin-top: 16px; }
+.product-cost-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 13px; border-radius: 8px; background: var(--surface-background); }
+.product-cost-summary > span { display: grid; gap: 4px; color: var(--muted); font-size: 9px; }
+.product-cost-summary strong { color: var(--text); font-size: 14px; }
+.materials-table { min-width: 680px; }
+.material-selected-summary { display: grid; gap: 4px; align-content: center; min-height: 40px; color: var(--text); font-size: 11px; }
+.material-selected-summary small { color: var(--muted); font-size: 9px; }
+.material-purchase-form label small { color: var(--muted); font-size: 9px; }
+.material-low-row { background: #fff8f3; }
+.material-low-label { color: #b65c32 !important; font-weight: 700; }
+.settings-company-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.settings-company-form label { display: grid; min-width: 0; gap: 5px; color: var(--brand-gray); font-size: 10px; font-weight: 650; }
+.settings-company-form input { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-background); color: var(--brand-navy); font-size: 11px; }
+.settings-company-span-two { grid-column: span 2; }
+.settings-company-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.sales-intro-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sales-view-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); }
+.sales-view-tabs button { display: flex; align-items: center; gap: 9px; padding: 10px 13px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 11px; }
+.sales-view-tabs button.active { border-bottom-color: var(--accent); color: var(--accent-text,var(--accent)); font-weight: 700; }
+.sales-view-tabs button b { display: grid; min-width: 21px; height: 21px; place-items: center; border-radius: 6px; background: var(--surface-muted); font-size: 9px; }
+.quote-table { min-width: 960px; }
+.sale-items-head, .sale-item-row { grid-template-columns: minmax(125px,1.1fr) minmax(150px,1.4fr) 58px 105px 86px 25px; }
+.sale-item-row select { width: 100%; min-width: 0; height: 34px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-background); color: var(--text); font-size: 9px; }
+@media (max-width: 680px) {
+  .settings-company-form { grid-template-columns: 1fr; }
+  .settings-company-span-two, .settings-company-actions { grid-column: 1; }
+  .sales-intro { align-items: flex-start; flex-direction: column; }
+  .sales-intro-actions { width: 100%; }
+  .sales-intro-actions .button { flex: 1; }
+  .sale-item-row { grid-template-columns: minmax(80px,1fr) 48px 76px 24px; gap: 5px; }
+  .sale-item-row select { grid-column: 1 / -1; }
+  .sale-item-row input[aria-label="Descrição do produto"] { grid-column: 1 / -1; }
+  .sale-item-row input[aria-label="Quantidade"] { grid-column: 1; }
+  .sale-item-row input[aria-label="Valor unitário em reais"] { grid-column: 2 / 4; }
+  .sale-item-row > strong { display: none; }
+}
+@media (max-width: 720px) {
+  .product-recipe-row { grid-template-columns: 1fr 1fr; }
+  .product-recipe-cost { grid-column: 1; }
+  .product-recipe-row > button { grid-column: 2; justify-self: end; }
+  .product-cost-summary { align-items: flex-start; flex-direction: column; }
+}

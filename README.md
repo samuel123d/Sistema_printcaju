@@ -61,3 +61,15 @@ Use os valores da configuração do app Web em **Firebase Console → Project se
 Por enquanto, a integração com o Mercado Livre está desativada na interface. Cadastre os produtos em **Produtos → Novo produto**, escolhendo o grupo **Vendas online (manual)** ou **Físicos**. Informe nome, código, custo, preço e saldo inicial; ajustes posteriores de estoque ficam na área **Estoque**.
 
 Registre pedidos e vendas, inclusive os feitos no Mercado Livre, em **Vendas**, selecionando **Mercado Livre (manual)** como canal. Esses dados são lançados somente no sistema e não são sincronizados com a plataforma.
+
+## Materiais, ficha técnica e preço sugerido
+
+Em **Financeiro → Estoque de materiais**, registre cada compra informando quantidade, unidade e valor total. O sistema converte kg para g, L para ml e cm para m, calcula o custo médio na unidade base e lança a compra como despesa. Para repor um insumo, selecione o material já cadastrado; não crie outro item para a mesma matéria-prima.
+
+Em **Produtos → Novo produto**, adicione os materiais e o consumo por peça. Por exemplo, para um rolo de 1 kg, cadastre 1 kg por R$ 68,40; o custo unitário será R$ 0,0684/g e o uso de 35 g custará R$ 2,394 antes do arredondamento monetário. Se uma folha rende cinco cartões, informe 0,2 folha por cartão. Energia é um custo por peça; mão de obra pode ser calculada por horas × valor/hora. Margem e taxas são usadas na fórmula `custo / (1 - margem - taxas)` para sugerir preço. O preço continua editável e o estoque de insumos não é baixado automaticamente ao registrar vendas.
+
+## Orçamentos e comprovantes comerciais
+
+Em **Vendas e orçamentos**, crie uma proposta com produtos do catálogo ou descrições manuais, cliente, validade, entrega, desconto e observações. Orçamentos ficam salvos e podem ser impressos ou convertidos em venda; a conversão usa os dados dos itens e evita converter a mesma proposta duas vezes. As vendas podem gerar um comprovante pelo histórico.
+
+Preencha nome/razão social e contatos em **Configurações → Dados da empresa**. CPF/CNPJ da empresa e CPF do cliente são opcionais. Os documentos usam a logo Print Caju e a impressão do navegador permite salvar como PDF. Orçamentos e comprovantes são documentos comerciais e não substituem documento fiscal obrigatório. Publique `firestore.rules` depois de atualizar as regras de acesso a `settings/business`.

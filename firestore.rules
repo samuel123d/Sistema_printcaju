@@ -47,11 +47,11 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
 
       // Profile and appearance settings stay private to each admin. Payment
-      // settings are part of the shared workspace.
+      // and business-document settings are shared across the workspace.
       match /settings/{settingId} {
         allow read, write: if isAdmin() && (
           request.auth.uid == userId
-          || (workspaceUid() == userId && settingId == 'payment')
+          || (workspaceUid() == userId && settingId in ['payment', 'business'])
         );
       }
 

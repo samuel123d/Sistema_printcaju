@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
+import useBusinessDetails from '../hooks/useBusinessDetails.js'
 import usePreferences, { applyBrandPreferences } from '../hooks/usePreferences.js'
-import { changeAccountEmail, clearProfilePhoto, requestPasswordReset, savePreferences, saveProfile, saveProfilePhoto } from '../services/settings/settings.js'
+import { changeAccountEmail, clearProfilePhoto, requestPasswordReset, saveBusinessDetails, savePreferences, saveProfile, saveProfilePhoto } from '../services/settings/settings.js'
 
 const palette = [
   { name: 'Laranja Print Caju', value: '#FF8A00' },
@@ -47,10 +48,12 @@ function profilePhotoError(cause) {
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth()
+  const { user, workspaceUid } = useAuth()
   const { preferences: savedPreferences, profile, loading, error: loadError, setProfile } = usePreferences()
+  const { business, loading: businessLoading, error: businessError } = useBusinessDetails()
   const photoInput = useRef(null)
   const [profileForm, setProfileForm] = useState({ displayName: '', email: '', photoURL: '' })
+  const [businessForm, setBusinessForm] = useState(business)
   const [preferences, setPreferences] = useState(savedPreferences)
   const [profileBusy, setProfileBusy] = useState(false)
   const [preferencesBusy, setPreferencesBusy] = useState(false)
@@ -61,6 +64,7 @@ export default function SettingsPage() {
 
   useEffect(() => { setPreferences(savedPreferences); applyBrandPreferences(savedPreferences) }, [savedPreferences])
   useEffect(() => setProfileForm({ displayName: profile.displayName ?? user?.displayName ?? '', email: user?.email ?? '', photoURL: profile.photoURL ?? user?.photoURL ?? '' }), [profile, user])
+  useEffect(() => setBusinessForm(business), [business])
 
   function changePreference(key, value) {
     const next = { ...preferences, [key]: value }
@@ -74,6 +78,18 @@ export default function SettingsPage() {
     try { await savePreferences(user.uid, preferences); setMessage('Aparência e alertas salvos na sua conta.') }
     catch { setSaveError('Não foi possível salvar suas configurações. Confira sua conexão.') }
     finally { setPreferencesBusy(false) }
+  }
+
+  async function saveCompanySettings(event) {
+    event.preventDefault(); clearMessages()
+    if (!businessForm.name.trim()) return setSaveError('Informe o nome ou razão social que aparecerá nos documentos.')
+    setPreferencesBusy(true)
+    try {
+      await saveBusinessDetails(workspaceUid, Object.fromEntries(Object.entries(businessForm).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])))
+      setMessage('Dados da empresa salvos para os orçamentos e comprovantes.')
+    } catch {
+      setSaveError('Não foi possível salvar os dados da empresa. Confira se as regras do Firestore foram publicadas.')
+    } finally { setPreferencesBusy(false) }
   }
 
   async function saveProfileSettings(event) {
@@ -148,6 +164,7 @@ export default function SettingsPage() {
   return <div className="page-stack settings-page">
     <div className="page-intro"><div><p className="eyebrow">SISTEMA</p><h2>Configurações</h2><p>Personalize o Print Caju, seu perfil e os alertas importantes da operação.</p></div></div>
     {loadError && <div className="sales-error" role="alert">{loadError}</div>}
+    {businessError && <div className="sales-error" role="alert">{businessError}</div>}
     {(message || saveError) && <div className={`alert ${saveError ? 'alert-error' : 'alert-success'}`} role={saveError ? 'alert' : 'status'}>{saveError || message}</div>}
     <section className="panel settings-section"><header className="settings-section-heading"><span className="settings-section-icon">01</span><div><h3>Perfil e acesso</h3><p>Atualize como seu perfil aparece e proteja o acesso à conta.</p></div></header>
       {loading ? <div className="sales-loading">Carregando perfil…</div> : <div className="settings-profile-layout"><div className="profile-photo-area"><div className="profile-photo">{profileForm.photoURL ? <img src={profileForm.photoURL} alt="Foto do perfil" /> : <span>{initials}</span>}</div><div className="profile-photo-actions"><button type="button" className="button button-secondary" disabled={profileBusy} onClick={() => photoInput.current?.click()}>{profileBusy ? 'Salvando…' : 'Trocar foto'}</button>{profileForm.photoURL && <button type="button" className="button button-quiet" disabled={profileBusy} onClick={removePhoto}>Remover</button>}</div><input ref={photoInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={uploadPhoto} /><small>JPG, PNG ou WebP. A imagem é comprimida e armazenada no Firestore (até 400 KB).</small></div>
@@ -172,6 +189,19 @@ export default function SettingsPage() {
         <div className="settings-notification-row"><div><strong>Notificações do navegador</strong><small>Receba um resumo diário quando o sistema estiver aberto.</small></div><button type="button" className="button button-secondary" onClick={enableBrowserNotifications}>{preferences.desktopNotificationsEnabled ? 'Permissão ativada' : 'Ativar notificações'}</button></div>
         <button className="button button-primary" disabled={preferencesBusy}>{preferencesBusy ? 'Salvando…' : 'Salvar preferências de alertas'}</button>
       </form>
+    </section>
+    <section className="panel settings-section"><header className="settings-section-heading"><span className="settings-section-icon">04</span><div><h3>Dados da empresa</h3><p>Essas informações aparecem nos orçamentos e comprovantes comerciais. CPF/CNPJ é opcional.</p></div></header>
+      {businessLoading ? <div className="sales-loading">Carregando dados da empresa…</div> : <form className="settings-company-form" onSubmit={saveCompanySettings}>
+        <label>Nome ou razão social<input required maxLength={120} value={businessForm.name} onChange={(event) => setBusinessForm((current) => ({ ...current, name: event.target.value }))} /></label>
+        <label>CPF/CNPJ <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={20} value={businessForm.taxId} onChange={(event) => setBusinessForm((current) => ({ ...current, taxId: event.target.value }))} placeholder="Pode preencher depois" /></label>
+        <label>Telefone<input type="tel" maxLength={30} value={businessForm.phone} onChange={(event) => setBusinessForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+        <label>E-mail<input type="email" maxLength={160} value={businessForm.email} onChange={(event) => setBusinessForm((current) => ({ ...current, email: event.target.value }))} /></label>
+        <label className="settings-company-span-two">Endereço<input maxLength={180} value={businessForm.address} onChange={(event) => setBusinessForm((current) => ({ ...current, address: event.target.value }))} /></label>
+        <label>Cidade<input maxLength={80} value={businessForm.city} onChange={(event) => setBusinessForm((current) => ({ ...current, city: event.target.value }))} /></label>
+        <label>Estado<input maxLength={2} value={businessForm.state} onChange={(event) => setBusinessForm((current) => ({ ...current, state: event.target.value }))} placeholder="UF" /></label>
+        <label>CEP<input maxLength={10} value={businessForm.postalCode} onChange={(event) => setBusinessForm((current) => ({ ...current, postalCode: event.target.value }))} /></label>
+        <div className="settings-company-actions"><button className="button button-primary" disabled={preferencesBusy}>{preferencesBusy ? 'Salvando…' : 'Salvar dados da empresa'}</button></div>
+      </form>}
     </section>
     <div className="settings-security-note"><img src="/printcaju-mark.png" alt="" /><p>Suas preferências e dados do perfil ficam vinculados à sua conta administradora.</p></div>
   </div>
