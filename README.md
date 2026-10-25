@@ -13,6 +13,8 @@ npm run dev
 
 Configure `.env.local` com os valores públicos da aplicação Web Firebase, usando `.env.example` como referência. Nunca coloque credenciais administrativas ou tokens privados no frontend.
 
+O build de produção usa `.env.production`, que contém somente a configuração pública do app Web Firebase para funcionar no Vercel sem variáveis configuradas separadamente. Variáveis de ambiente com os mesmos nomes no Vercel podem substituir esses valores. Nunca coloque credenciais de conta de serviço ou tokens privados nesse arquivo.
+
 ## Criar contas e atribuir acesso
 
 O cadastro é feito diretamente no Firebase, sem formulário público no site:
@@ -38,6 +40,21 @@ Leia [SECURITY.md](SECURITY.md) para orientações de configuração e publicaç
 npm run build
 npm run preview
 ```
+
+## Publicar no Vercel
+
+Ao importar o repositório no Vercel, use o framework **Vite**, o comando de build `npm run build` e o diretório de saída `dist`. O arquivo `vercel.json` mantém as rotas do React funcionando quando uma página interna é aberta ou atualizada diretamente.
+
+O repositório inclui `.env.production` com a configuração pública do Firebase Web necessária ao build. Se preferir configurar ou substituir os valores no painel, em **Settings → Environment Variables** use estas variáveis:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID` (opcional)
+
+Use os valores da configuração do app Web em **Firebase Console → Project settings → General**. Depois de salvar alterações no painel, faça um novo deploy. No Firebase Authentication, adicione também o domínio do deploy Vercel aos domínios autorizados. Os valores `VITE_*` são enviados ao navegador; não coloque chaves de serviço ou outros segredos neles.
 
 ## Importar anúncios e estoque do Mercado Livre
 

@@ -14,6 +14,6 @@
 2. Configure uma política de senha adequada no Firebase Authentication.
 3. Restrinja a chave da aplicação Web aos domínios usados e às APIs Firebase necessárias.
 4. Considere configurar Firebase App Check e backups do Firestore.
-5. Nunca publique `.env.local`, credenciais de conta de serviço, chaves privadas ou tokens.
+5. `.env.production` contém somente a configuração pública do app Web Firebase usada pelo build do Vercel. Essa configuração é enviada ao navegador e não deve ser tratada como segredo. Nunca publique `.env.local`, credenciais de conta de serviço, chaves privadas ou tokens.
 
 Use HTTPS e configure cabeçalhos de segurança no serviço de hospedagem.
