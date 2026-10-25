@@ -46,9 +46,9 @@ export function printSalesDocument(documentData, company, type) {
   const customer = documentData.client || {}
   popup.opener = null
   const customerDetails = [
-    customer.taxId && `CPF: ${escapeHtml(customer.taxId)}`,
-    customer.phone && `Telefone: ${escapeHtml(customer.phone)}`,
-    customer.email && escapeHtml(customer.email),
+    company.showCustomerTaxId !== false && customer.taxId && `CPF/CNPJ: ${escapeHtml(customer.taxId)}`,
+    company.showCustomerContact !== false && customer.phone && `Telefone: ${escapeHtml(customer.phone)}`,
+    company.showCustomerContact !== false && customer.email && escapeHtml(customer.email),
     documentData.delivery?.address && `Endereço: ${escapeHtml(documentData.delivery.address)}`,
     [documentData.delivery?.city, documentData.delivery?.state].filter(Boolean).join(' - '),
     documentData.delivery?.postalCode && `CEP: ${escapeHtml(documentData.delivery.postalCode)}`,
@@ -58,6 +58,18 @@ export function printSalesDocument(documentData, company, type) {
   const disclaimer = quote
     ? 'Este orçamento é uma proposta comercial e não representa confirmação de pagamento ou documento fiscal.'
     : 'Este comprovante registra uma venda comercial entre as partes e não substitui nota fiscal ou outro documento fiscal obrigatório.'
+  const documentTitle = quote
+    ? `${company.quoteTitle || 'ORÇAMENTO'}${documentData.status === 'cancelled' ? ' · CANCELADO' : ''}`
+    : company.receiptTitle || 'COMPROVANTE DE VENDA'
+  const documentFooter = quote ? company.quoteFooter : company.receiptFooter
+  const summaryDetails = [
+    company.showSalesChannel !== false && `<div>Canal: ${escapeHtml(documentData.channelLabel || documentData.channel || 'Venda direta')}</div>`,
+    company.showPaymentDetails !== false && `<div>Pagamento: ${escapeHtml(documentData.paymentMethodLabel || documentData.paymentMethod || 'A combinar')}</div>`,
+    company.showPaymentDetails !== false && !quote && `<div>Status do pagamento: ${escapeHtml(documentData.paymentStatusLabel || 'Pendente')}</div>`,
+    company.showDeliveryDetails !== false && `<div>Entrega: ${escapeHtml(documentData.deliveryMethod === 'pickup' ? 'Retirada' : 'Entrega')}</div>`,
+    documentData.dueDate && `<div>Prazo: ${escapeHtml(dateTime(null, documentData.dueDate).split(' às ')[0])}</div>`,
+  ].filter(Boolean).join('')
+  const configuredText = quote ? company.quoteIntro : ''
 
   popup.document.open()
   popup.document.write(`<!doctype html>
@@ -71,13 +83,14 @@ export function printSalesDocument(documentData, company, type) {
   </style>
 </head>
 <body><main class="document">
-  <header class="top"><div class="brand"><img src="${escapeHtml(new URL('/printcaju-logo.png', window.location.origin).href)}" alt="Logo Print Caju"><div><h1>${escapeHtml(company.name || 'Print Caju')}</h1><div class="meta">${sellerDetails}</div></div></div><div class="doc-type"><h2>${quote ? 'ORÇAMENTO' : 'COMPROVANTE DE VENDA'}</h2><strong>${escapeHtml(number)}</strong><p class="meta">${quote ? 'Emitido em' : 'Venda registrada em'} ${escapeHtml(issued)}</p>${quote && documentData.validUntil ? `<p class="meta">Válido até ${escapeHtml(dateTime(null, documentData.validUntil).split(' às ')[0])}</p>` : ''}</div></header>
-  <div class="people"><section><h3>${quote ? 'Proposta para' : 'Cliente'}</h3><div class="name">${escapeHtml(customer.name || 'Cliente')}</div>${customerDetails}</section><section><h3>Resumo</h3><div>Canal: ${escapeHtml(documentData.channelLabel || documentData.channel || 'Venda direta')}</div><div>Pagamento: ${escapeHtml(documentData.paymentMethodLabel || documentData.paymentMethod || 'A combinar')}</div>${!quote ? `<div>Status do pagamento: ${escapeHtml(documentData.paymentStatusLabel || 'Pendente')}</div>` : ''}<div>Entrega: ${escapeHtml(documentData.deliveryMethod === 'pickup' ? 'Retirada' : 'Entrega')}</div>${documentData.dueDate ? `<div>Prazo: ${escapeHtml(dateTime(null, documentData.dueDate).split(' às ')[0])}</div>` : ''}</section></div>
+  <header class="top"><div class="brand"><img src="${escapeHtml(new URL('/printcaju-logo.png', window.location.origin).href)}" alt="Logo Print Caju"><div><h1>${escapeHtml(company.name || 'Print Caju')}</h1>${company.showCompanyDetails !== false ? `<div class="meta">${sellerDetails}</div>` : ''}</div></div><div class="doc-type"><h2>${escapeHtml(documentTitle)}</h2><strong>${escapeHtml(number)}</strong><p class="meta">${quote ? 'Emitido em' : 'Venda registrada em'} ${escapeHtml(issued)}</p>${quote && documentData.status === 'cancelled' ? '<p class="meta">Este orçamento foi cancelado.</p>' : ''}${quote && documentData.validUntil ? `<p class="meta">Válido até ${escapeHtml(dateTime(null, documentData.validUntil).split(' às ')[0])}</p>` : ''}</div></header>
+  ${configuredText ? `<section class="notes">${escapeHtml(configuredText)}</section>` : ''}
+  <div class="people" ${summaryDetails ? '' : 'style="grid-template-columns:1fr"'}><section><h3>${quote ? 'Proposta para' : 'Cliente'}</h3><div class="name">${escapeHtml(customer.name || 'Cliente')}</div>${customerDetails}</section>${summaryDetails ? `<section><h3>Resumo</h3>${summaryDetails}</section>` : ''}</div>
   <table class="items"><thead><tr><th>Produto / descrição</th><th class="number">Qtd.</th><th class="number">Valor unitário</th><th class="number">Total</th></tr></thead><tbody>${items}</tbody></table>
   <section class="totals"><div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>${Number(documentData.discount) > 0 ? `<div><span>Desconto</span><strong>− ${money(documentData.discount)}</strong></div>` : ''}<div class="total"><span>Total</span><strong>${money(documentData.total)}</strong></div>${!quote ? `<div><span>Recebido</span><strong>${money(documentData.receivedAmount)}</strong></div><div><span>Saldo pendente</span><strong>${money(documentData.outstandingAmount)}</strong></div>` : ''}</section>
   ${documentData.notes ? `<section class="notes"><strong>Observações</strong><div>${escapeHtml(documentData.notes)}</div></section>` : ''}
-  <div class="signatures"><div>${escapeHtml(company.name || 'Vendedor')}</div><div>${escapeHtml(customer.name || 'Cliente')}</div></div>
-  <p class="disclaimer">${disclaimer}</p><footer class="footer">${escapeHtml(company.name || 'Print Caju')} · ${escapeHtml(number)}</footer>
+  ${company.showDocumentSignatures !== false ? `<div class="signatures"><div>${escapeHtml(company.name || 'Vendedor')}</div><div>${escapeHtml(customer.name || 'Cliente')}</div></div>` : ''}
+  <p class="disclaimer">${disclaimer}</p>${documentFooter ? `<section class="notes">${escapeHtml(documentFooter)}</section>` : ''}<footer class="footer">${escapeHtml(company.name || 'Print Caju')} · ${escapeHtml(number)}</footer>
 </main><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250))</script></body></html>`)
   popup.document.close()
   popup.focus()

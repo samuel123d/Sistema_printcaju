@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 
 const productCollection = (uid) => collection(db, 'users', uid, 'products')
@@ -10,8 +10,11 @@ export function watchProducts(uid, onRows, onError) {
 }
 
 export function createProduct(uid, product) {
-  return addDoc(productCollection(uid), {
+  const productRef = doc(productCollection(uid))
+  const sku = String(product.sku || '').trim() || (product.type === 'fisico' ? `FIS-${productRef.id.slice(0, 8).toUpperCase()}` : '')
+  return setDoc(productRef, {
     ...product,
+    sku,
     active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -19,7 +22,8 @@ export function createProduct(uid, product) {
 }
 
 export function updateProduct(uid, productId, product) {
-  return updateDoc(doc(db, 'users', uid, 'products', productId), { ...product, updatedAt: serverTimestamp() })
+  const sku = String(product.sku || '').trim() || (product.type === 'fisico' ? `FIS-${productId.slice(0, 8).toUpperCase()}` : '')
+  return updateDoc(doc(db, 'users', uid, 'products', productId), { ...product, sku, updatedAt: serverTimestamp() })
 }
 
 export function adjustProductStock(uid, productId, delta, reason) {
@@ -47,4 +51,8 @@ export function adjustProductStock(uid, productId, delta, reason) {
 
 export function archiveProduct(uid, productId) {
   return updateDoc(doc(db, 'users', uid, 'products', productId), { active: false, updatedAt: serverTimestamp() })
+}
+
+export function deleteArchivedProduct(uid, productId) {
+  return deleteDoc(doc(db, 'users', uid, 'products', productId))
 }

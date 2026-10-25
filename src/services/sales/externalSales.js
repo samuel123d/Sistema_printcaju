@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 
 function salesCollection(uid) {
@@ -75,4 +75,20 @@ export function cancelExternalSale(uid, saleId) {
     cancelledAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
+}
+
+export function deleteExternalSale(uid, saleId) {
+  return deleteDoc(doc(db, 'users', uid, 'externalSales', saleId))
+}
+
+export function cancelQuote(uid, quoteId) {
+  return updateDoc(doc(db, 'users', uid, 'quotes', quoteId), {
+    status: 'cancelled',
+    cancelledAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export function deleteQuote(uid, quoteId) {
+  return deleteDoc(doc(db, 'users', uid, 'quotes', quoteId))
 }

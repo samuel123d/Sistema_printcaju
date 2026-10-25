@@ -15,7 +15,7 @@ import SettingsPage from './pages/SettingsPage.jsx'
 import FinancePage from './pages/FinancePage.jsx'
 import ReportsPage from './pages/ReportsPage.jsx'
 import AgendaPage from './pages/AgendaPage.jsx'
-import PurchasesPage from './pages/PurchasesPage.jsx'
+import ClientsPage from './pages/ClientsPage.jsx'
 
 function RouteContent() {
   const { user, isAdmin, loading, signOut } = useAuth()
@@ -46,11 +46,12 @@ function RouteContent() {
         <Route index element={<DashboardPage />} />
         <Route path="/pedidos" element={<OrdersPage />} />
         <Route path="/vendas" element={<ExternalSalesPage />} />
+        <Route path="/clientes" element={<ClientsPage />} />
         <Route path="/financeiro" element={<FinancePage />} />
         <Route path="/produtos" element={<ProductsPage />} />
         <Route path="/producao" element={<ProductionPage />} />
         <Route path="/estoque" element={<InventoryPage />} />
-        <Route path="/compras" element={<PurchasesPage />} />
+        <Route path="/compras" element={<Navigate to="/financeiro" replace />} />
         <Route path="/relatorios" element={<ReportsPage />} />
         <Route path="/agenda" element={<AgendaPage />} />
         <Route path="/configuracoes" element={<SettingsPage />} />
@@ -63,4 +64,3 @@ function RouteContent() {
 export default function App() {
   return <AuthProvider><RouteContent /></AuthProvider>
 }
-

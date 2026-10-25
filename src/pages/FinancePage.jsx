@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
 import useFinancialTransactions from '../hooks/useFinancialTransactions.js'
-import { createMaterialPurchase } from '../services/finance/materials.js'
-import { formatUnit, normalizeQuantity, purchaseUnits } from '../services/finance/units.js'
+import { createMaterialPurchase, importHistoricalMaterialPurchase, loadMaterialPurchaseForTransaction, updateMaterialPurchaseFromHistory } from '../services/finance/materials.js'
+import { calculatePurchaseBaseQuantity, formatUnit, purchaseUnits } from '../services/finance/units.js'
 import { createFinancialTransaction, updateFinancialTransaction, voidFinancialTransaction } from '../services/finance/transactions.js'
 
 const categories = {
@@ -36,6 +36,17 @@ function localMonth() { return localDate().slice(0, 7) }
 function amount(value) { return Number.parseFloat(String(value ?? '0').replace(',', '.')) || 0 }
 function money(value) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0) }
 function unitCostMoney(value) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 6 }).format(Number(value) || 0) }
+function convertPackageQuantity(quantity, fromUnit, toUnit) {
+  const from = purchaseUnits.find((unit) => unit.value === fromUnit)
+  const to = purchaseUnits.find((unit) => unit.value === toUnit)
+  if (!from || !to || from.baseUnit !== to.baseUnit || from.dimensions || to.dimensions) return quantity
+  return String(Number(quantity) * from.factor / to.factor)
+}
+function convertDimension(value, fromUnit, toUnit) {
+  const factors = { mm: 0.001, cm: 0.01, m: 1 }
+  if (!factors[fromUnit] || !factors[toUnit] || !value) return value
+  return String(Number(value) * factors[fromUnit] / factors[toUnit])
+}
 function dateLabel(value) {
   if (!value) return '—'
   const [year, month, day] = value.split('-').map(Number)
@@ -50,7 +61,7 @@ function emptyForm() {
   return { type: 'expense', date: localDate(), description: '', category: 'materials', amount: '', paymentMethod: 'pix', notes: '' }
 }
 function emptyMaterialForm() {
-  return { materialId: '', name: '', date: localDate(), packageQuantity: '1', packageUnit: 'kg', packageCost: '', minStock: '0', paymentMethod: 'pix' }
+  return { materialId: '', name: '', date: localDate(), packageQuantity: '1', packageUnit: 'kg', packageWidth: '', packageLength: '', dimensionUnit: 'cm', packageCost: '', minStock: '0', paymentMethod: 'pix' }
 }
 function errorMessage(cause) {
   if (cause.code === 'permission-denied') return 'O Firestore bloqueou o lançamento. Confira se as regras permitem gravar em users/{uid}/financialTransactions.'
@@ -60,6 +71,146 @@ function errorMessage(cause) {
 
 function SummaryCard({ title, value, detail, tone }) {
   return <article className="finance-summary-card"><div><span>{title}</span><span className={`finance-summary-icon finance-tone-${tone}`} aria-hidden="true">{tone === 'income' ? '↗' : tone === 'expense' ? '↘' : tone === 'balance' ? '＝' : '＋'}</span></div><strong>{value}</strong><small>{detail}</small></article>
+}
+
+function HistoryStockImport({ entry, materials, onCancel, onImported }) {
+  const { user, workspaceUid } = useAuth()
+  const [materialId, setMaterialId] = useState('')
+  const [name, setName] = useState(entry.description.replace(/^compra de material:\s*/i, ''))
+  const [packageQuantity, setPackageQuantity] = useState('1')
+  const [packageUnit, setPackageUnit] = useState('kg')
+  const [packageWidth, setPackageWidth] = useState('')
+  const [packageLength, setPackageLength] = useState('')
+  const [dimensionUnit, setDimensionUnit] = useState('cm')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const selectedMaterial = materials.find((material) => material.id === materialId)
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    if (!materialId && !name.trim()) return setError('Informe o nome do material.')
+    if (!Number.isFinite(Number(packageQuantity)) || Number(packageQuantity) <= 0) return setError('Informe uma quantidade maior que zero.')
+    setSaving(true)
+    try {
+      await importHistoricalMaterialPurchase(workspaceUid, entry.id, {
+        name: name.trim(),
+        packageQuantity: Number(packageQuantity),
+        packageUnit,
+        packageWidth: Number(packageWidth),
+        packageLength: Number(packageLength),
+        dimensionUnit,
+      }, user.uid, materialId)
+      onImported('Compra antiga vinculada ao estoque; o lançamento financeiro original foi mantido.')
+    } catch (cause) {
+      setError(cause.message || 'Não foi possível incluir esta compra no estoque.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <tr className="history-stock-import-row"><td colSpan="7"><form className="finance-form history-stock-import" onSubmit={submit}>
+    <label>Material existente<select value={materialId} onChange={(event) => {
+      const id = event.target.value
+      const material = materials.find((item) => item.id === id)
+      setMaterialId(id)
+      if (material) setPackageUnit(purchaseUnits.find((unit) => unit.baseUnit === material.baseUnit)?.value || 'unidade')
+    }}><option value="">Cadastrar como material novo</option>{materials.map((material) => <option key={material.id} value={material.id}>{material.name} ({unitCostMoney(material.unitCost)}/{formatUnit(material.baseUnit)})</option>)}</select></label>
+    {!materialId && <label>Nome do material<input required maxLength="120" value={name} onChange={(event) => setName(event.target.value)} /></label>}
+    <label>{purchaseUnits.find((unit) => unit.value === packageUnit)?.dimensions ? 'Quantidade de rolos/placas' : 'Quantidade comprada'}<input type="number" min="0.001" step="any" required value={packageQuantity} onChange={(event) => setPackageQuantity(event.target.value)} /></label>
+    <label>Unidade<select value={packageUnit} onChange={(event) => {
+      const nextUnit = event.target.value
+      setPackageQuantity((current) => convertPackageQuantity(current, packageUnit, nextUnit))
+      setPackageUnit(nextUnit)
+    }}>{purchaseUnits.filter((unit) => !selectedMaterial || unit.baseUnit === selectedMaterial.baseUnit).map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}</select></label>
+    {purchaseUnits.find((unit) => unit.value === packageUnit)?.dimensions && <>
+      <label>Largura<input type="number" min="0.001" step="any" required value={packageWidth} onChange={(event) => setPackageWidth(event.target.value)} /></label>
+      <label>Comprimento<input type="number" min="0.001" step="any" required value={packageLength} onChange={(event) => setPackageLength(event.target.value)} /></label>
+      <label>Unidade das medidas<select value={dimensionUnit} onChange={(event) => {
+        const nextUnit = event.target.value
+        setPackageWidth((current) => convertDimension(current, dimensionUnit, nextUnit))
+        setPackageLength((current) => convertDimension(current, dimensionUnit, nextUnit))
+        setDimensionUnit(nextUnit)
+      }}><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+    </>}
+    <div className="history-stock-import-total">Valor do lançamento: <strong>{money(entry.amount)}</strong></div>
+    {error && <div className="alert alert-error history-stock-import-error" role="alert">{error}</div>}
+    <div className="finance-form-actions"><button type="button" className="button button-secondary" onClick={onCancel}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? 'Atualizando estoque…' : 'Incluir compra no estoque'}</button></div>
+  </form></td></tr>
+}
+
+function HistoryStockEditor({ entry, onCancel, onSaved }) {
+  const { user, workspaceUid } = useAuth()
+  const [purchase, setPurchase] = useState(null)
+  const [packageQuantity, setPackageQuantity] = useState('')
+  const [packageUnit, setPackageUnit] = useState('')
+  const [packageWidth, setPackageWidth] = useState('')
+  const [packageLength, setPackageLength] = useState('')
+  const [dimensionUnit, setDimensionUnit] = useState('cm')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    loadMaterialPurchaseForTransaction(workspaceUid, entry.id).then((result) => {
+      if (!active) return
+      setPurchase(result)
+      setPackageQuantity(String(result.packageQuantity))
+      setPackageUnit(result.packageUnit)
+      setPackageWidth(String(result.packageWidth ?? ''))
+      setPackageLength(String(result.packageLength ?? ''))
+      setDimensionUnit(result.dimensionUnit || 'cm')
+      setLoading(false)
+    }).catch((cause) => {
+      if (!active) return
+      setError(cause.message || 'Não foi possível carregar os dados da compra.')
+      setLoading(false)
+    })
+    return () => { active = false }
+  }, [workspaceUid, entry.id])
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    if (!Number.isFinite(Number(packageQuantity)) || Number(packageQuantity) <= 0) return setError('Informe uma quantidade maior que zero.')
+    setSaving(true)
+    try {
+      await updateMaterialPurchaseFromHistory(workspaceUid, entry.id, Number(packageQuantity), packageUnit, {
+        width: packageWidth,
+        length: packageLength,
+        dimensionUnit,
+      }, user.uid)
+      onSaved('Quantidade e unidade da compra atualizadas no histórico e no estoque.')
+    } catch (cause) {
+      setError(cause.message || 'Não foi possível atualizar a compra e o estoque.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <tr className="history-stock-import-row"><td colSpan="7">{loading ? <div className="sales-loading">Carregando dados da compra…</div> : <form className="finance-form history-stock-import" onSubmit={submit}>
+    <div className="history-stock-import-total">Material: <strong>{purchase?.materialName || '—'}</strong></div>
+    <label>{purchaseUnits.find((unit) => unit.value === packageUnit)?.dimensions ? 'Quantidade de rolos/placas' : 'Quantidade comprada'}<input type="number" min="0.001" step="any" required value={packageQuantity} onChange={(event) => setPackageQuantity(event.target.value)} /></label>
+    <label>Unidade<select required value={packageUnit} onChange={(event) => {
+      const nextUnit = event.target.value
+      setPackageQuantity((current) => convertPackageQuantity(current, packageUnit, nextUnit))
+      setPackageUnit(nextUnit)
+    }}>{purchaseUnits.filter((unit) => unit.baseUnit === purchase?.baseUnit).map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}</select></label>
+    {purchaseUnits.find((unit) => unit.value === packageUnit)?.dimensions && <>
+      <label>Largura<input type="number" min="0.001" step="any" required value={packageWidth} onChange={(event) => setPackageWidth(event.target.value)} /></label>
+      <label>Comprimento<input type="number" min="0.001" step="any" required value={packageLength} onChange={(event) => setPackageLength(event.target.value)} /></label>
+      <label>Unidade das medidas<select value={dimensionUnit} onChange={(event) => {
+        const nextUnit = event.target.value
+        setPackageWidth((current) => convertDimension(current, dimensionUnit, nextUnit))
+        setPackageLength((current) => convertDimension(current, dimensionUnit, nextUnit))
+        setDimensionUnit(nextUnit)
+      }}><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+    </>}
+    <div className="history-stock-import-total">Valor da compra: <strong>{money(entry.amount)}</strong></div>
+    {error && <div className="alert alert-error history-stock-import-error" role="alert">{error}</div>}
+    {!loading && <div className="finance-form-actions"><button type="button" className="button button-secondary" onClick={onCancel}>Cancelar</button><button className="button button-primary" disabled={saving || !purchase}>{saving ? 'Atualizando…' : 'Salvar quantidade e estoque'}</button></div>}
+  </form>}</td></tr>
 }
 
 export default function FinancePage() {
@@ -74,6 +225,8 @@ export default function FinancePage() {
   const [saving, setSaving] = useState(false)
   const [savingMaterial, setSavingMaterial] = useState(false)
   const [busyId, setBusyId] = useState('')
+  const [importingHistoryId, setImportingHistoryId] = useState('')
+  const [editingHistoryId, setEditingHistoryId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -143,14 +296,22 @@ export default function FinancePage() {
     if (!Number.isFinite(Number(materialForm.packageQuantity)) || amount(materialForm.packageQuantity) <= 0) return setError('A quantidade comprada precisa ser um número maior que zero.')
     if (!Number.isFinite(amount(materialForm.packageCost)) || amount(materialForm.packageCost) <= 0) return setError('Informe um valor total da compra maior que zero.')
     if (!selectedMaterial && (!Number.isFinite(Number(materialForm.minStock)) || Number(materialForm.minStock) < 0)) return setError('O estoque mínimo precisa ser um número igual ou maior que zero.')
-    const { baseUnit } = normalizeQuantity(materialForm.packageQuantity, materialForm.packageUnit)
+    const selectedUnit = purchaseUnits.find((unit) => unit.value === materialForm.packageUnit)
+    if (!selectedUnit || (selectedMaterial && selectedUnit.baseUnit !== selectedMaterial.baseUnit)) return setError('A unidade de compra não corresponde ao material selecionado.')
+    let baseQuantity
+    try {
+      baseQuantity = calculatePurchaseBaseQuantity(materialForm.packageQuantity, materialForm.packageUnit, materialForm)
+    } catch (cause) {
+      return setError(cause.message)
+    }
     const purchase = {
       ...materialForm,
       name: materialForm.name.trim(),
       packageQuantity: Number(materialForm.packageQuantity),
       packageCost: Number(amount(materialForm.packageCost).toFixed(2)),
       minStock: Number(materialForm.minStock) || 0,
-      baseUnit,
+      baseUnit: selectedUnit.baseUnit,
+      baseQuantity,
     }
     setSavingMaterial(true)
     try {
@@ -185,7 +346,10 @@ export default function FinancePage() {
   const selectedMaterial = materials.find((item) => item.id === materialForm.materialId)
   const selectedPurchaseUnit = purchaseUnits.find((unit) => unit.value === materialForm.packageUnit)
   const purchaseBaseUnit = selectedMaterial?.baseUnit || selectedPurchaseUnit?.baseUnit
-  const purchasedBaseQuantity = amount(materialForm.packageQuantity) * (selectedPurchaseUnit?.factor || 1)
+  const dimensionFactor = { mm: 0.001, cm: 0.01, m: 1 }[materialForm.dimensionUnit]
+  const purchasedBaseQuantity = selectedPurchaseUnit?.dimensions
+    ? amount(materialForm.packageQuantity) * amount(materialForm.packageWidth) * dimensionFactor * amount(materialForm.packageLength) * dimensionFactor
+    : amount(materialForm.packageQuantity) * (selectedPurchaseUnit?.factor || 0)
   const purchaseUnitCost = purchasedBaseQuantity > 0 ? amount(materialForm.packageCost) / purchasedBaseQuantity : 0
 
   return <div className="page-stack finance-page">
@@ -222,12 +386,32 @@ export default function FinancePage() {
           const materialId = event.target.value
           const selected = materials.find((item) => item.id === materialId)
           const packageUnit = selected ? purchaseUnits.find((unit) => unit.baseUnit === selected.baseUnit)?.value || 'unidade' : 'kg'
-          setMaterialForm((current) => ({ ...current, materialId, packageUnit }))
+          setMaterialForm((current) => ({ ...current, materialId, packageUnit, packageWidth: '', packageLength: '' }))
         }}><option value="">Cadastrar material novo</option>{materials.map((material) => <option key={material.id} value={material.id}>{material.name}</option>)}</select></label>
         {materialForm.materialId ? <div className="material-selected-summary"><strong>{materials.find((item) => item.id === materialForm.materialId)?.name}</strong><small>Estoque: {Number(materials.find((item) => item.id === materialForm.materialId)?.stockQuantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {formatUnit(materials.find((item) => item.id === materialForm.materialId)?.baseUnit)}</small></div> : <label className="finance-description-field">Nome do material<input required maxLength={120} value={materialForm.name} onChange={(event) => setMaterialForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ex.: Filamento PLA" /></label>}
         <label>Data da compra<input type="date" required value={materialForm.date} onChange={(event) => setMaterialForm((current) => ({ ...current, date: event.target.value }))} /></label>
-        <label>Quantidade comprada<input type="number" min="0.001" step="any" required value={materialForm.packageQuantity} onChange={(event) => setMaterialForm((current) => ({ ...current, packageQuantity: event.target.value }))} /></label>
-        <label>Unidade<select value={materialForm.packageUnit} onChange={(event) => setMaterialForm((current) => ({ ...current, packageUnit: event.target.value }))}>{purchaseUnits.filter((unit) => !materialForm.materialId || unit.baseUnit === materials.find((item) => item.id === materialForm.materialId)?.baseUnit).map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}</select></label>
+        <label>{selectedPurchaseUnit?.dimensions ? 'Quantidade de rolos/placas' : 'Quantidade comprada'}<input type="number" min="0.001" step="any" required value={materialForm.packageQuantity} onChange={(event) => setMaterialForm((current) => ({ ...current, packageQuantity: event.target.value }))} /></label>
+        <label>Unidade<select value={materialForm.packageUnit} onChange={(event) => {
+          const nextUnit = event.target.value
+          setMaterialForm((current) => ({
+            ...current,
+            packageQuantity: convertPackageQuantity(current.packageQuantity, current.packageUnit, nextUnit),
+            packageUnit: nextUnit,
+          }))
+        }}>{purchaseUnits.filter((unit) => !materialForm.materialId || unit.baseUnit === materials.find((item) => item.id === materialForm.materialId)?.baseUnit).map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}</select></label>
+        {selectedPurchaseUnit?.dimensions && <>
+          <label>Largura do rolo/placa<input type="number" min="0.001" step="any" required value={materialForm.packageWidth} onChange={(event) => setMaterialForm((current) => ({ ...current, packageWidth: event.target.value }))} /></label>
+          <label>Comprimento do rolo/placa<input type="number" min="0.001" step="any" required value={materialForm.packageLength} onChange={(event) => setMaterialForm((current) => ({ ...current, packageLength: event.target.value }))} /></label>
+          <label>Unidade das medidas<select value={materialForm.dimensionUnit} onChange={(event) => {
+            const nextUnit = event.target.value
+            setMaterialForm((current) => ({
+              ...current,
+              packageWidth: convertDimension(current.packageWidth, current.dimensionUnit, nextUnit),
+              packageLength: convertDimension(current.packageLength, current.dimensionUnit, nextUnit),
+              dimensionUnit: nextUnit,
+            }))
+          }}><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+        </>}
         <label>Valor total da compra (R$)<input type="number" min="0.01" step="0.01" required value={materialForm.packageCost} onChange={(event) => setMaterialForm((current) => ({ ...current, packageCost: event.target.value }))} placeholder="0,00" />{purchaseUnitCost > 0 && <small>Custo desta compra: {unitCostMoney(purchaseUnitCost)} / {formatUnit(purchaseBaseUnit)}</small>}</label>
         {!materialForm.materialId && <label>Estoque mínimo ({formatUnit(purchaseBaseUnit)})<input type="number" min="0" step="any" value={materialForm.minStock} onChange={(event) => setMaterialForm((current) => ({ ...current, minStock: event.target.value }))} /></label>}
         <label>Forma de pagamento<select value={materialForm.paymentMethod} onChange={(event) => setMaterialForm((current) => ({ ...current, paymentMethod: event.target.value }))}>{Object.entries(paymentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -244,15 +428,16 @@ export default function FinancePage() {
       {transactionsLoading ? <div className="sales-loading">Carregando lançamentos…</div> : report.monthTransactions.length === 0 ? <div className="finance-empty"><span aria-hidden="true">＋</span><strong>Nenhum lançamento manual neste mês</strong><small>Use o formulário acima para registrar despesas ou outras receitas.</small></div> : <div className="finance-table-scroll"><table className="finance-table"><thead><tr><th>Data</th><th>Lançamento</th><th>Categoria</th><th>Pagamento</th><th>Status</th><th className="finance-amount-column">Valor</th><th>Ações</th></tr></thead><tbody>{report.monthTransactions.map((entry) => {
         const cancelled = entry.status === 'cancelled'
         const materialPurchase = Boolean(entry.sourceMaterialPurchaseId)
-        return <tr className={cancelled ? 'finance-voided-row' : ''} key={entry.id}>
+        const canImportStock = entry.type === 'expense' && ['materials', 'packaging'].includes(entry.category) && !materialPurchase && !cancelled
+        return [<tr className={cancelled ? 'finance-voided-row' : ''} key={entry.id}>
           <td>{dateLabel(entry.date)}</td>
           <td><strong>{entry.description}</strong>{entry.notes && <small>{entry.notes}</small>}</td>
           <td>{categoryLabels[entry.category] || 'Outro'}</td>
           <td>{paymentLabels[entry.paymentMethod] || 'Outro'}</td>
           <td><span className={`finance-kind finance-kind-${entry.type}`}>{cancelled ? 'Estornado' : entry.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
           <td className={`finance-amount finance-amount-${entry.type}`}>{entry.type === 'income' ? '+' : '−'} {money(entry.amount)}</td>
-          <td><div className="finance-row-actions"><button type="button" title={materialPurchase ? 'A compra está vinculada ao estoque de materiais.' : undefined} disabled={materialPurchase || cancelled || busyId === entry.id || saving} onClick={() => startEdit(entry)}>Editar</button><button type="button" className="finance-void-action" title={materialPurchase ? 'Ajuste as compras pelo estoque de materiais para manter os saldos corretos.' : undefined} disabled={materialPurchase || cancelled || busyId === entry.id || saving} onClick={() => voidEntry(entry)}>{busyId === entry.id ? 'Estornando…' : 'Estornar'}</button></div></td>
-        </tr>
+          <td><div className="finance-row-actions"><button type="button" disabled={cancelled || busyId === entry.id || saving} onClick={() => materialPurchase ? setEditingHistoryId(editingHistoryId === entry.id ? '' : entry.id) : startEdit(entry)}>{materialPurchase ? editingHistoryId === entry.id ? 'Fechar edição' : 'Editar quantidade' : 'Editar'}</button><button type="button" className="finance-void-action" title={materialPurchase ? 'Ajuste as compras pelo estoque de materiais para manter os saldos corretos.' : undefined} disabled={materialPurchase || cancelled || busyId === entry.id || saving} onClick={() => voidEntry(entry)}>{busyId === entry.id ? 'Estornando…' : 'Estornar'}</button>{canImportStock && <button type="button" onClick={() => setImportingHistoryId(importingHistoryId === entry.id ? '' : entry.id)}>{importingHistoryId === entry.id ? 'Fechar estoque' : 'Incluir no estoque'}</button>}</div></td>
+        </tr>, ...(importingHistoryId === entry.id && canImportStock ? [<HistoryStockImport key={`${entry.id}-stock-import`} entry={entry} materials={materials} onCancel={() => setImportingHistoryId('')} onImported={(successMessage) => { setImportingHistoryId(''); setMessage(successMessage) }} />] : []), ...(editingHistoryId === entry.id && materialPurchase && !cancelled ? [<HistoryStockEditor key={`${entry.id}-stock-edit`} entry={entry} onCancel={() => setEditingHistoryId('')} onSaved={(successMessage) => { setEditingHistoryId(''); setMessage(successMessage) }} />] : [])]
       })}</tbody></table></div>}
     </section>
     <p className="finance-footnote">Valores recebidos e taxas são calculados a partir das vendas ativas pela data da venda. Não registre essas mesmas vendas como receitas manuais.</p>

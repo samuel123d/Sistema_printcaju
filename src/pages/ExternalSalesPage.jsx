@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import useBusinessDetails from '../hooks/useBusinessDetails.js'
+import useClients from '../hooks/useClients.js'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useProducts from '../hooks/useProducts.js'
 import useQuotes from '../hooks/useQuotes.js'
-import { cancelExternalSale, convertQuoteToSale, createExternalSale, createQuote, updateExternalSale } from '../services/sales/externalSales.js'
+import { cancelExternalSale, cancelQuote, convertQuoteToSale, createExternalSale, createQuote, deleteExternalSale, deleteQuote, updateExternalSale } from '../services/sales/externalSales.js'
+import { saveClient } from '../services/clients/clients.js'
 import { printSalesDocument } from '../services/sales/printDocument.js'
+import { formatBrazilianPhone, formatBrazilianTaxId } from '../utils/inputMasks.js'
 
 const channelLabels = { whatsapp: 'WhatsApp', instagram: 'Instagram', mercadolivre: 'Mercado Livre (manual)', presencial: 'Presencial', outro: 'Outro' }
 const paymentLabels = { pending: 'Pendente', partial: 'Parcial', paid: 'Recebido' }
@@ -62,7 +65,7 @@ function paymentStatus(total, received) {
 
 function formFromSale(sale) {
   return {
-    clientName: sale.client?.name ?? '', taxId: sale.client?.taxId ?? '', phone: sale.client?.phone ?? '', email: sale.client?.email ?? '',
+    clientName: sale.client?.name ?? '', taxId: formatBrazilianTaxId(sale.client?.taxId), phone: formatBrazilianPhone(sale.client?.phone), email: sale.client?.email ?? '',
     channel: sale.channel ?? 'whatsapp', soldAt: sale.soldAt ?? localToday(),
     deliveryMethod: sale.deliveryMethod ?? 'delivery', address: sale.delivery?.address ?? '',
     city: sale.delivery?.city ?? '', state: sale.delivery?.state ?? '', postalCode: sale.delivery?.postalCode ?? '',
@@ -74,7 +77,7 @@ function formFromSale(sale) {
 
 function formFromQuote(quote) {
   return {
-    clientName: quote.client?.name ?? '', taxId: quote.client?.taxId ?? '', phone: quote.client?.phone ?? '', email: quote.client?.email ?? '',
+    clientName: quote.client?.name ?? '', taxId: formatBrazilianTaxId(quote.client?.taxId), phone: formatBrazilianPhone(quote.client?.phone), email: quote.client?.email ?? '',
     channel: quote.channel ?? 'whatsapp', soldAt: localToday(), validUntil: quote.validUntil ?? datePlusDays(7),
     deliveryMethod: quote.deliveryMethod ?? 'delivery', address: quote.delivery?.address ?? '',
     city: quote.delivery?.city ?? '', state: quote.delivery?.state ?? '', postalCode: quote.delivery?.postalCode ?? '',
@@ -86,16 +89,18 @@ function formFromQuote(quote) {
 }
 
 function firestoreErrorMessage(error) {
-  if (error.code === 'permission-denied') return 'O Firestore recusou a operação. Confirme se as regras publicadas permitem acesso a vendas e orçamentos.'
+  if (error.code === 'permission-denied') return 'O Firestore recusou a operação. Confirme se as regras publicadas permitem acesso a clientes, vendas e orçamentos.'
   if (error.code === 'unavailable' || error.code === 'network-request-failed') return 'Sem conexão com o Firestore. Verifique sua internet e tente novamente.'
   return error.message || 'Não foi possível salvar a venda ou o orçamento. Revise os dados e tente novamente.'
 }
 
 function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
   const { user, workspaceUid } = useAuth()
+  const { clients } = useClients()
   const { products } = useProducts()
   const isQuote = mode === 'quote'
   const [form, setForm] = useState(() => sale ? formFromSale(sale) : quote ? formFromQuote(quote) : emptyForm())
+  const [selectedClientId, setSelectedClientId] = useState(sale?.clientId ?? quote?.clientId ?? '')
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const subtotal = form.items.reduce((sum, item) => sum + Math.max(0, amount(item.quantity)) * Math.max(0, amount(item.unitPrice)), 0)
@@ -106,6 +111,22 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
   const due = Math.max(0, total - received)
 
   function change(field, value) { setForm((current) => ({ ...current, [field]: value })) }
+  function selectClient(clientId) {
+    setSelectedClientId(clientId)
+    const client = clients.find((item) => item.id === clientId)
+    if (!client) return
+    setForm((current) => ({
+      ...current,
+      clientName: client.name || '',
+      taxId: formatBrazilianTaxId(client.taxId),
+      phone: formatBrazilianPhone(client.phone),
+      email: client.email || '',
+      address: client.address || '',
+      city: client.city || '',
+      state: client.state || '',
+      postalCode: client.postalCode || '',
+    }))
+  }
   function changeItem(index, field, value) {
     setForm((current) => ({ ...current, items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item) }))
   }
@@ -133,56 +154,67 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
     if (!isQuote && received > total) return setFormError('O valor recebido não pode ser maior que o total da venda.')
     if (form.deliveryMethod === 'delivery' && !form.address.trim()) return setFormError('Informe o endereço para a entrega.')
 
-    const commonData = {
-      channel: form.channel,
-      client: { name: form.clientName.trim(), taxId: form.taxId.trim(), phone: form.phone.trim(), email: form.email.trim() },
-      deliveryMethod: form.deliveryMethod,
-      delivery: form.deliveryMethod === 'delivery'
-        ? { address: form.address.trim(), city: form.city.trim(), state: form.state.trim().toUpperCase(), postalCode: form.postalCode.trim() }
-        : null,
-      items: form.items.map((item) => ({
-        ...(item.productId ? { productId: item.productId } : {}),
-        description: item.description.trim(),
-        quantity: Number(item.quantity),
-        unitPrice: amount(item.unitPrice),
-        lineTotal: Number((Number(item.quantity) * amount(item.unitPrice)).toFixed(2)),
-      })),
-      subtotal: Number(subtotal.toFixed(2)),
-      discount: Number(discount.toFixed(2)),
-      fees: Number(fees.toFixed(2)),
-      total: Number(total.toFixed(2)),
-      receivedAmount: Number(received.toFixed(2)),
-      outstandingAmount: Number(due.toFixed(2)),
-      estimatedNet: Number((total - fees).toFixed(2)),
-      paymentStatus: paymentStatus(total, received),
-      paymentMethod: form.paymentMethod,
-      orderType: form.orderType,
-      dueDate: form.dueDate,
-      notes: form.notes.trim(),
-      seller: business,
-    }
-    const quoteData = {
-      ...commonData,
-      quoteDate: form.soldAt,
-      validUntil: form.validUntil,
-      subtotal: Number(subtotal.toFixed(2)),
-      discount: Number(discount.toFixed(2)),
-      fees: Number(fees.toFixed(2)),
-      total: Number(total.toFixed(2)),
-    }
-    const saleData = {
-      ...commonData,
-      soldAt: form.soldAt,
-      productionStatus: form.productionStatus,
-      deliveryStatus: form.deliveryStatus,
-      receivedAmount: Number(received.toFixed(2)),
-      outstandingAmount: Number(due.toFixed(2)),
-      estimatedNet: Number((total - fees).toFixed(2)),
-      paymentStatus: paymentStatus(total, received),
-    }
-
     setSaving(true)
     try {
+      const clientId = await saveClient(workspaceUid, {
+        name: form.clientName,
+        taxId: form.taxId,
+        phone: form.phone,
+        email: form.email,
+        address: form.address,
+        city: form.city,
+        state: form.state,
+        postalCode: form.postalCode,
+      }, selectedClientId)
+      const commonData = {
+        clientId,
+        channel: form.channel,
+        client: { name: form.clientName.trim(), taxId: form.taxId.trim(), phone: form.phone.trim(), email: form.email.trim() },
+        deliveryMethod: form.deliveryMethod,
+        delivery: form.deliveryMethod === 'delivery'
+          ? { address: form.address.trim(), city: form.city.trim(), state: form.state.trim().toUpperCase(), postalCode: form.postalCode.trim() }
+          : null,
+        items: form.items.map((item) => ({
+          ...(item.productId ? { productId: item.productId } : {}),
+          description: item.description.trim(),
+          quantity: Number(item.quantity),
+          unitPrice: amount(item.unitPrice),
+          lineTotal: Number((Number(item.quantity) * amount(item.unitPrice)).toFixed(2)),
+        })),
+        subtotal: Number(subtotal.toFixed(2)),
+        discount: Number(discount.toFixed(2)),
+        fees: Number(fees.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        receivedAmount: Number(received.toFixed(2)),
+        outstandingAmount: Number(due.toFixed(2)),
+        estimatedNet: Number((total - fees).toFixed(2)),
+        paymentStatus: paymentStatus(total, received),
+        paymentMethod: form.paymentMethod,
+        orderType: form.orderType,
+        dueDate: form.dueDate,
+        notes: form.notes.trim(),
+        seller: business,
+      }
+      const quoteData = {
+        ...commonData,
+        quoteDate: form.soldAt,
+        validUntil: form.validUntil,
+        subtotal: Number(subtotal.toFixed(2)),
+        discount: Number(discount.toFixed(2)),
+        fees: Number(fees.toFixed(2)),
+        total: Number(total.toFixed(2)),
+      }
+      const saleData = {
+        ...commonData,
+        soldAt: form.soldAt,
+        productionStatus: form.productionStatus,
+        deliveryStatus: form.deliveryStatus,
+        receivedAmount: Number(received.toFixed(2)),
+        outstandingAmount: Number(due.toFixed(2)),
+        estimatedNet: Number((total - fees).toFixed(2)),
+        paymentStatus: paymentStatus(total, received),
+      }
+
       if (isQuote) {
         await createQuote(workspaceUid, quoteData, user.uid)
         onSaved('Orçamento salvo. Gere a impressão na lista de orçamentos.')
@@ -197,7 +229,7 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
         onSaved('Venda registrada. Gere o comprovante pelo histórico.')
       }
     } catch (error) {
-      setFormError(firestoreErrorMessage(error))
+      setFormError(error.code ? firestoreErrorMessage(error) : error.message || 'Não foi possível salvar o cliente da venda.')
     } finally {
       setSaving(false)
     }
@@ -214,9 +246,10 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
           <section className="form-section">
             <div className="form-section-title"><span>01</span><div><h3>Cliente e venda</h3><p>Informações para identificar este atendimento.</p></div></div>
             <div className="form-grid form-grid-two">
+              <label className="field-span-two">Cliente cadastrado<select value={selectedClientId} onChange={(event) => selectClient(event.target.value)}><option value="">Digitar os dados manualmente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}{client.phone ? ` · ${client.phone}` : ''}</option>)}</select></label>
               <label className="field-span-two">Nome do cliente <b>*</b><input required maxLength={120} value={form.clientName} onChange={(event) => change('clientName', event.target.value)} placeholder="Nome e sobrenome" /></label>
-              <label>CPF <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={20} value={form.taxId} onChange={(event) => change('taxId', event.target.value)} placeholder="Pode preencher depois" /></label>
-              <label>WhatsApp / telefone<input type="tel" maxLength={30} value={form.phone} onChange={(event) => change('phone', event.target.value)} placeholder="(00) 00000-0000" /></label>
+              <label>CPF <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={18} value={formatBrazilianTaxId(form.taxId)} onChange={(event) => change('taxId', formatBrazilianTaxId(event.target.value))} placeholder="000.000.000-00" /></label>
+              <label>WhatsApp / telefone<input type="tel" inputMode="tel" maxLength={16} value={formatBrazilianPhone(form.phone)} onChange={(event) => change('phone', formatBrazilianPhone(event.target.value))} placeholder="(00) 00000-0000" /></label>
               <label>E-mail <span className="optional-label">opcional</span><input type="email" maxLength={160} value={form.email} onChange={(event) => change('email', event.target.value)} placeholder="cliente@email.com" /></label>
               <label>Canal da venda <b>*</b><select value={form.channel} onChange={(event) => change('channel', event.target.value)}><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="mercadolivre">Mercado Livre (manual)</option><option value="presencial">Presencial</option><option value="outro">Outro</option></select></label>
               <label>Tipo de pedido<select value={form.orderType} onChange={(event) => change('orderType', event.target.value)}><option value="physical">Produto físico</option><option value="online">Pedido online</option></select></label>
@@ -326,7 +359,7 @@ export default function ExternalSalesPage() {
         paymentMethodLabel: type === 'quote' ? 'A combinar' : paymentMethodLabels[documentData.paymentMethod] || documentData.paymentMethod,
         paymentStatusLabel: paymentLabels[documentData.paymentStatus] || 'Pendente',
       }
-      printSalesDocument(data, documentData.seller || business, type)
+      printSalesDocument(data, business, type)
     } catch (cause) {
       setDocumentError(cause.message || 'Não foi possível abrir o documento para impressão.')
     }
@@ -367,6 +400,44 @@ export default function ExternalSalesPage() {
     }
   }
 
+  async function removeSale(sale) {
+    if (!window.confirm(`Excluir permanentemente a venda e o comprovante de ${sale.client?.name || 'cliente'}? O registro será removido do Firestore e não poderá ser recuperado.`)) return
+    setCancelError('')
+    try {
+      await deleteExternalSale(workspaceUid, sale.id)
+      notify('Venda e comprovante excluídos permanentemente.')
+    } catch (cause) {
+      setCancelError(firestoreErrorMessage(cause))
+    }
+  }
+
+  async function cancelSavedQuote(quote) {
+    if (!window.confirm(`Cancelar o orçamento ${quote.quoteNumber || ''}? O registro continuará disponível no histórico.`)) return
+    setCancelError('')
+    try {
+      await cancelQuote(workspaceUid, quote.id)
+      setToast('Orçamento cancelado. O registro foi preservado.')
+      window.setTimeout(() => setToast(''), 3500)
+    } catch (cause) {
+      setCancelError(firestoreErrorMessage(cause))
+    }
+  }
+
+  async function removeQuote(quote) {
+    const convertedWarning = quote.status === 'converted'
+      ? ' A venda convertida e seu comprovante permanecerão no histórico.'
+      : ''
+    if (!window.confirm(`Excluir permanentemente o orçamento ${quote.quoteNumber || ''}? O registro será removido do Firestore e não poderá ser recuperado.${convertedWarning}`)) return
+    setCancelError('')
+    try {
+      await deleteQuote(workspaceUid, quote.id)
+      setToast('Orçamento excluído permanentemente.')
+      window.setTimeout(() => setToast(''), 3500)
+    } catch (cause) {
+      setCancelError(firestoreErrorMessage(cause))
+    }
+  }
+
   return (
     <div className="page-stack sales-page">
       <div className="page-intro sales-intro"><div><p className="eyebrow">COMERCIAL</p><h2>Vendas e orçamentos</h2><p>Crie orçamentos profissionais e registre as vendas de todos os canais.</p></div><div className="sales-intro-actions"><button className="button button-secondary" onClick={startNewQuote}>＋ Novo orçamento</button><button className="button button-primary new-sale-button" onClick={startNewSale}>＋ Nova venda</button></div></div>
@@ -384,6 +455,7 @@ export default function ExternalSalesPage() {
 
       {documentError && <div className="sales-error" role="alert">{documentError}</div>}
       {businessError && <div className="sales-error" role="alert">{businessError}</div>}
+      {cancelError && <div className="sales-error" role="alert"><strong>Não foi possível concluir a ação</strong><span>{cancelError}</span></div>}
       {activeTab === 'sales' ? <section className="panel sales-list-panel">
         <div className="sales-list-heading"><div><h3>Histórico de vendas</h3><p>Atualizado em tempo real a partir do Firestore.</p></div><span className="sales-count-chip">{filteredSales.length} {filteredSales.length === 1 ? 'registro' : 'registros'}</span></div>
         <div className="sales-filters">
@@ -393,7 +465,6 @@ export default function ExternalSalesPage() {
         </div>
 
         {(error || quotesError) && <div className="sales-error" role="alert"><strong>Falha ao carregar vendas</strong><span>{error || quotesError}</span></div>}
-        {cancelError && <div className="sales-error" role="alert"><strong>Não foi possível cancelar</strong><span>{cancelError}</span></div>}
         {loading ? <div className="sales-loading"><span className="spinner" />Carregando vendas…</div> : filteredSales.length === 0 ? (
           <div className="sales-empty"><span className="sales-empty-icon">↗</span><h3>{sales.length ? 'Nenhuma venda corresponde aos filtros' : 'Comece registrando uma venda'}</h3><p>{sales.length ? 'Ajuste a busca ou os filtros para ver os outros registros.' : 'As vendas ficarão salvas na sua conta e poderão ser consultadas por aqui.'}</p>{!sales.length && <button className="button button-secondary" onClick={startNewSale}>Registrar primeira venda</button>}</div>
         ) : (
@@ -405,11 +476,11 @@ export default function ExternalSalesPage() {
               <td><span className={`status-pill payment-${sale.paymentStatus || 'pending'}`}>{sale.status === 'cancelled' ? 'Cancelada' : paymentLabels[sale.paymentStatus] || 'Pendente'}</span></td>
               <td><span className={`status-pill delivery-${sale.deliveryStatus || 'pending'}`}>{deliveryLabels[sale.deliveryStatus] || 'A combinar'}</span></td>
               <td><strong className="table-primary-text">{money(sale.total)}</strong><small>{sale.outstandingAmount > 0 ? `${money(sale.outstandingAmount)} a receber` : 'Sem saldo pendente'}</small></td>
-              <td><div className="sale-actions"><button aria-label={`Editar venda ${sale.id.slice(0, 7)}`} title="Editar venda" disabled={sale.status === 'cancelled'} onClick={() => { setFormMode('sale'); setFormQuote(null); setFormSale(sale); setFormOpen(true) }}>Editar</button>{sale.status !== 'cancelled' && <button title="Imprimir comprovante de venda" onClick={() => openDocument(sale, 'sale')}>Comprovante</button>}{sale.status !== 'cancelled' && <button className="cancel-action" title="Cancelar venda" onClick={() => cancelSale(sale)}>Cancelar</button>}</div></td>
+              <td><div className="sale-actions"><button aria-label={`Editar venda ${sale.id.slice(0, 7)}`} title="Editar venda" disabled={sale.status === 'cancelled'} onClick={() => { setFormMode('sale'); setFormQuote(null); setFormSale(sale); setFormOpen(true) }}>Editar</button>{sale.status !== 'cancelled' && <button title="Imprimir comprovante de venda" onClick={() => openDocument(sale, 'sale')}>Comprovante</button>}{sale.status !== 'cancelled' && <button className="cancel-action" title="Cancelar venda e manter o comprovante no histórico" onClick={() => cancelSale(sale)}>Cancelar</button>}<button className="cancel-action" title="Excluir venda e comprovante permanentemente" onClick={() => removeSale(sale)}>Excluir</button></div></td>
             </tr>)}
           </tbody></table></div>
         )}
-        <footer className="sales-list-footer"><span>Os cancelamentos preservam o histórico; nenhum registro é apagado.</span><span>{sales.length} no total</span></footer>
+        <footer className="sales-list-footer"><span>Cancelar preserva o registro. Excluir remove permanentemente a venda e seu comprovante.</span><span>{sales.length} no total</span></footer>
       </section> : <section className="panel sales-list-panel">
         <div className="sales-list-heading"><div><h3>Orçamentos</h3><p>Imprima e converta propostas aceitas em vendas sem redigitar os dados.</p></div><span className="sales-count-chip">{quotes.length} {quotes.length === 1 ? 'orçamento' : 'orçamentos'}</span></div>
         {quotesError && <div className="sales-error" role="alert">{quotesError}</div>}
@@ -419,9 +490,9 @@ export default function ExternalSalesPage() {
             <td><strong className="sale-code">{quote.quoteNumber || `ORC-${quote.id.slice(0, 8).toUpperCase()}`}</strong><small>{quote.items?.length || 0} {(quote.items?.length || 0) === 1 ? 'item' : 'itens'}</small></td>
             <td><strong className="table-primary-text">{quote.client?.name || 'Cliente'}</strong><small>{quote.client?.taxId || quote.client?.phone || 'Sem CPF/contato'}</small></td>
             <td>{dateTimeLabel(quote.createdAt)}</td><td>{dateLabel(quote.validUntil)}</td>
-            <td><span className={`status-pill ${quote.status === 'converted' ? 'payment-paid' : expired ? 'delivery-shipped' : 'payment-pending'}`}>{quote.status === 'converted' ? 'Convertido' : expired ? 'Vencido' : 'Aberto'}</span></td>
+            <td><span className={`status-pill ${quote.status === 'converted' ? 'payment-paid' : quote.status === 'cancelled' ? 'delivery-shipped' : expired ? 'delivery-shipped' : 'payment-pending'}`}>{quote.status === 'converted' ? 'Convertido' : quote.status === 'cancelled' ? 'Cancelado' : expired ? 'Vencido' : 'Aberto'}</span></td>
             <td><strong className="table-primary-text">{money(quote.total)}</strong></td>
-            <td><div className="sale-actions"><button title="Imprimir orçamento" onClick={() => openDocument(quote, 'quote')}>Imprimir</button>{quote.status === 'open' && <button className="cancel-action" onClick={() => startQuoteConversion(quote)}>Converter em venda</button>}</div></td>
+            <td><div className="sale-actions"><button title="Imprimir orçamento" onClick={() => openDocument(quote, 'quote')}>Imprimir</button>{quote.status === 'open' && <><button className="cancel-action" onClick={() => startQuoteConversion(quote)}>Converter em venda</button><button className="cancel-action" title="Cancelar e preservar o orçamento" onClick={() => cancelSavedQuote(quote)}>Cancelar</button></>}<button className="cancel-action" title="Excluir orçamento permanentemente" onClick={() => removeQuote(quote)}>Excluir</button></div></td>
           </tr>
         })}</tbody></table></div>}
       </section>}

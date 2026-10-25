@@ -13,3 +13,7 @@ export function suggestSalePrice(cost, marginPercent, feePercent) {
   const divisor = 1 - (Number(marginPercent || 0) + Number(feePercent || 0)) / 100
   return divisor > 0 ? Number(cost || 0) / divisor : null
 }
+
+export function calculatePrintingEnergyCost(printHours, electricityRate, powerWatts = 220) {
+  return Number(printHours || 0) * Number(powerWatts) / 1000 * Number(electricityRate || 0)
+}

@@ -23,6 +23,18 @@ export const DEFAULT_BUSINESS_DETAILS = {
   city: '',
   state: '',
   postalCode: '',
+  quoteTitle: 'ORÇAMENTO',
+  quoteIntro: '',
+  quoteFooter: '',
+  receiptTitle: 'COMPROVANTE DE VENDA',
+  receiptFooter: '',
+  showCompanyDetails: true,
+  showCustomerTaxId: true,
+  showCustomerContact: true,
+  showSalesChannel: true,
+  showPaymentDetails: true,
+  showDeliveryDetails: true,
+  showDocumentSignatures: true,
 }
 
 const preferencesRef = (uid) => doc(db, 'users', uid, 'settings', 'preferences')

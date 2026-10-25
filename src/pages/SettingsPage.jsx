@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import useBusinessDetails from '../hooks/useBusinessDetails.js'
 import usePreferences, { applyBrandPreferences } from '../hooks/usePreferences.js'
 import { changeAccountEmail, clearProfilePhoto, requestPasswordReset, saveBusinessDetails, savePreferences, saveProfile, saveProfilePhoto } from '../services/settings/settings.js'
+import { formatBrazilianPhone, formatBrazilianTaxId } from '../utils/inputMasks.js'
 
 const palette = [
   { name: 'Laranja Print Caju', value: '#FF8A00' },
@@ -193,13 +194,28 @@ export default function SettingsPage() {
     <section className="panel settings-section"><header className="settings-section-heading"><span className="settings-section-icon">04</span><div><h3>Dados da empresa</h3><p>Essas informações aparecem nos orçamentos e comprovantes comerciais. CPF/CNPJ é opcional.</p></div></header>
       {businessLoading ? <div className="sales-loading">Carregando dados da empresa…</div> : <form className="settings-company-form" onSubmit={saveCompanySettings}>
         <label>Nome ou razão social<input required maxLength={120} value={businessForm.name} onChange={(event) => setBusinessForm((current) => ({ ...current, name: event.target.value }))} /></label>
-        <label>CPF/CNPJ <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={20} value={businessForm.taxId} onChange={(event) => setBusinessForm((current) => ({ ...current, taxId: event.target.value }))} placeholder="Pode preencher depois" /></label>
-        <label>Telefone<input type="tel" maxLength={30} value={businessForm.phone} onChange={(event) => setBusinessForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+        <label>CPF/CNPJ <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={18} value={formatBrazilianTaxId(businessForm.taxId)} onChange={(event) => setBusinessForm((current) => ({ ...current, taxId: formatBrazilianTaxId(event.target.value) }))} placeholder="000.000.000-00 ou 00.000.000/0000-00" /></label>
+        <label>Telefone<input type="tel" inputMode="tel" maxLength={16} value={formatBrazilianPhone(businessForm.phone)} onChange={(event) => setBusinessForm((current) => ({ ...current, phone: formatBrazilianPhone(event.target.value) }))} placeholder="(00) 00000-0000" /></label>
         <label>E-mail<input type="email" maxLength={160} value={businessForm.email} onChange={(event) => setBusinessForm((current) => ({ ...current, email: event.target.value }))} /></label>
         <label className="settings-company-span-two">Endereço<input maxLength={180} value={businessForm.address} onChange={(event) => setBusinessForm((current) => ({ ...current, address: event.target.value }))} /></label>
         <label>Cidade<input maxLength={80} value={businessForm.city} onChange={(event) => setBusinessForm((current) => ({ ...current, city: event.target.value }))} /></label>
         <label>Estado<input maxLength={2} value={businessForm.state} onChange={(event) => setBusinessForm((current) => ({ ...current, state: event.target.value }))} placeholder="UF" /></label>
         <label>CEP<input maxLength={10} value={businessForm.postalCode} onChange={(event) => setBusinessForm((current) => ({ ...current, postalCode: event.target.value }))} /></label>
+        <div className="document-settings-heading settings-company-span-two"><h4>Personalizar orçamento e comprovante</h4><p>Defina os títulos, textos e seções que aparecem ao imprimir ou salvar em PDF.</p></div>
+        <label>Título do orçamento<input maxLength={60} value={businessForm.quoteTitle} onChange={(event) => setBusinessForm((current) => ({ ...current, quoteTitle: event.target.value }))} /></label>
+        <label>Título do comprovante<input maxLength={60} value={businessForm.receiptTitle} onChange={(event) => setBusinessForm((current) => ({ ...current, receiptTitle: event.target.value }))} /></label>
+        <label className="settings-company-span-two">Texto de apresentação do orçamento<textarea rows="3" maxLength={500} value={businessForm.quoteIntro} onChange={(event) => setBusinessForm((current) => ({ ...current, quoteIntro: event.target.value }))} placeholder="Ex.: Obrigado por solicitar um orçamento. Confira abaixo os produtos e condições." /></label>
+        <label className="settings-company-span-two">Rodapé do orçamento<textarea rows="3" maxLength={500} value={businessForm.quoteFooter} onChange={(event) => setBusinessForm((current) => ({ ...current, quoteFooter: event.target.value }))} placeholder="Prazo, condições ou informações que deseja incluir no final do orçamento." /></label>
+        <label className="settings-company-span-two">Rodapé do comprovante de venda<textarea rows="3" maxLength={500} value={businessForm.receiptFooter} onChange={(event) => setBusinessForm((current) => ({ ...current, receiptFooter: event.target.value }))} placeholder="Agradecimento, política de troca ou informações adicionais." /></label>
+        <div className="document-settings-options settings-company-span-two">
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showCompanyDetails !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showCompanyDetails: event.target.checked }))} /><span>Exibir CPF/CNPJ e contatos da empresa</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showCustomerTaxId !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showCustomerTaxId: event.target.checked }))} /><span>Exibir CPF/CNPJ do cliente</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showCustomerContact !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showCustomerContact: event.target.checked }))} /><span>Exibir telefone e e-mail do cliente</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showSalesChannel !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showSalesChannel: event.target.checked }))} /><span>Exibir canal da venda</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showPaymentDetails !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showPaymentDetails: event.target.checked }))} /><span>Exibir forma e status do pagamento</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showDeliveryDetails !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showDeliveryDetails: event.target.checked }))} /><span>Exibir entrega e prazo</span></label>
+          <label className="document-setting-toggle"><input type="checkbox" checked={businessForm.showDocumentSignatures !== false} onChange={(event) => setBusinessForm((current) => ({ ...current, showDocumentSignatures: event.target.checked }))} /><span>Incluir campos para assinaturas</span></label>
+        </div>
         <div className="settings-company-actions"><button className="button button-primary" disabled={preferencesBusy}>{preferencesBusy ? 'Salvando…' : 'Salvar dados da empresa'}</button></div>
       </form>}
     </section>

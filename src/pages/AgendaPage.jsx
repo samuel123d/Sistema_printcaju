@@ -55,15 +55,6 @@ function googleError(error) {
   return error.message || 'Não foi possível conectar ao Google Agenda.'
 }
 
-function googleDate(event) {
-  if (event.start?.date) return { date: event.start.date, time: '' }
-  if (!event.start?.dateTime) return { date: localDate(), time: '' }
-  const parsed = new Date(event.start.dateTime)
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(parsed)
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return { date: `${values.year}-${values.month}-${values.day}`, time: `${values.hour}:${values.minute}` }
-}
-
 function googleEventBody(item) {
   const start = item.time
     ? { dateTime: `${item.date}T${item.time}:00`, timeZone }
@@ -85,6 +76,9 @@ export default function AgendaPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [filter, setFilter] = useState('open')
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedItemIds, setSelectedItemIds] = useState(() => new Set())
+  const [deletingSelected, setDeletingSelected] = useState(false)
   const [form, setForm] = useState(blankItem)
   const [editing, setEditing] = useState(null)
   const editorRef = useRef(null)
@@ -92,8 +86,8 @@ export default function AgendaPage() {
   const [busy, setBusy] = useState(false)
   const [googleToken, setGoogleToken] = useState('')
   const [googleEmail, setGoogleEmail] = useState('')
-  const syncCursorRef = useRef('')
   const syncRunningRef = useRef(false)
+  const sentEventIdsRef = useRef(new Set())
   const [permission, setPermission] = useState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
 
   useEffect(() => {
@@ -104,6 +98,10 @@ export default function AgendaPage() {
       setLoading(false)
     })
   }, [workspaceUid])
+
+  useEffect(() => {
+    setSelectedItemIds((current) => new Set([...current].filter((id) => items.some((item) => item.id === id))))
+  }, [items])
 
   useEffect(() => {
     if (permission !== 'granted' || !user?.uid) return undefined
@@ -122,21 +120,16 @@ export default function AgendaPage() {
     return () => window.clearInterval(timer)
   }, [items, permission, user?.uid])
 
-  // Calendar sync uses incremental sync tokens so cancellations and edits made in Google are reflected here.
+  // Only send local agenda changes to Google; never fetch or import Google events.
   useEffect(() => {
-    if (!googleToken || !workspaceUid) return undefined
+    if (!googleToken || !workspaceUid || loading) return undefined
     let active = true
-    syncCursorRef.current = ''
-    const syncCalendar = async () => {
+    const sendLocalChanges = async () => {
       if (syncRunningRef.current) return
       syncRunningRef.current = true
       try {
         for (const eventId of readPendingDeletes(user?.uid)) {
-          const deletion = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${googleToken}` } })
-          if (!deletion.ok && deletion.status !== 404 && deletion.status !== 410) {
-            const details = await deletion.json().catch(() => ({}))
-            throw new Error(details.error?.message || 'Não foi possível concluir uma exclusão pendente no Google Agenda.')
-          }
+          await syncGoogle('DELETE', eventId, undefined, googleToken)
           clearGoogleDelete(user.uid, eventId)
           clearGoogleUpdate(user.uid, eventId)
         }
@@ -144,96 +137,88 @@ export default function AgendaPage() {
           await syncGoogle('PATCH', eventId, item, googleToken)
           clearGoogleUpdate(user.uid, eventId)
         }
-        let cursor = syncCursorRef.current
-        const fullSync = !cursor
-        let nextCursor = ''
-        let pageToken = ''
-        do {
-          const params = new URLSearchParams({ maxResults: '2500', showDeleted: 'true' })
-          if (cursor) params.set('syncToken', cursor)
-          if (pageToken) params.set('pageToken', pageToken)
-          const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { Authorization: `Bearer ${googleToken}` } })
-          if (response.status === 410 && cursor) {
-            syncCursorRef.current = ''
-            cursor = ''
-            pageToken = ''
-            continue
-          }
-          if (!response.ok) {
-            const details = await response.json().catch(() => ({}))
-            throw new Error(details.error?.message || 'Falha ao sincronizar Google Agenda. Conecte novamente sua conta.')
-          }
-          const result = await response.json()
-          for (const event of result.items || []) {
-            if (!active || !event.id) continue
-            let local = itemsRef.current.find((item) => item.googleEventId === event.id)
-            const isCancelled = event.status === 'cancelled'
-            if (!local && isCancelled) continue
-            if (!local && fullSync) {
-              const eventDate = googleDate(event)
-              local = itemsRef.current.find((item) => !item.googleEventId && statusOf(item) !== 'cancelled'
-                && (item.title || '').trim().toLowerCase() === (event.summary || '').trim().toLowerCase()
-                && item.date === eventDate.date && (item.time || '') === eventDate.time)
-              if (local) {
-                const linked = { ...local, googleEventId: event.id }
-                await updateAgendaItem(workspaceUid, local.id, { googleEventId: event.id })
-                itemsRef.current = itemsRef.current.map((item) => item.id === local.id ? linked : item)
-                continue
-              }
-            }
-            if (!local) {
-              const dates = googleDate(event)
-              const imported = {
-                title: event.summary || 'Evento do Google Agenda', type: 'meeting', date: dates.date, time: dates.time,
-                priority: 'normal', details: event.description || '', status: 'open', reminder: false, googleEventId: event.id,
-              }
-              const reference = await createAgendaItem(workspaceUid, imported)
-              local = { ...imported, id: reference.id }
-              itemsRef.current = [...itemsRef.current, local]
-            } else if (isCancelled) {
-              await removeAgendaItem(workspaceUid, local.id)
-              itemsRef.current = itemsRef.current.filter((item) => item.id !== local.id)
-            } else {
-              const dates = googleDate(event)
-              const changed = {
-                ...local, title: event.summary || local.title, date: dates.date, time: dates.time,
-                details: event.description || '', status: statusOf(local) === 'cancelled' ? 'open' : statusOf(local), completed: statusOf(local) === 'completed',
-              }
-              if (changed.title !== local.title || changed.date !== local.date || changed.time !== (local.time || '') || changed.details !== (local.details || '') || changed.status !== statusOf(local)) {
-                await updateAgendaItem(workspaceUid, local.id, changed)
-                itemsRef.current = itemsRef.current.map((item) => item.id === local.id ? changed : item)
-              }
-            }
-          }
-          pageToken = result.nextPageToken || ''
-          nextCursor = result.nextSyncToken || nextCursor
-        } while (pageToken && active)
-        if (fullSync && active) {
-          for (const cancelled of itemsRef.current.filter((item) => statusOf(item) === 'cancelled')) {
-            await removeAgendaItem(workspaceUid, cancelled.id)
-            itemsRef.current = itemsRef.current.filter((item) => item.id !== cancelled.id)
-          }
-          for (const local of [...itemsRef.current]) {
-            if (local.googleEventId || statusOf(local) === 'cancelled' || !local.date) continue
+        for (const local of [...itemsRef.current]) {
+          if (!active || !local.id || local.googleEventId || sentEventIdsRef.current.has(local.id) || statusOf(local) === 'cancelled' || !local.date) continue
+          sentEventIdsRef.current.add(local.id)
+          try {
             const created = await syncGoogle('POST', '', local, googleToken)
             await updateAgendaItem(workspaceUid, local.id, { googleEventId: created.id })
             itemsRef.current = itemsRef.current.map((item) => item.id === local.id ? { ...item, googleEventId: created.id } : item)
+          } catch (cause) {
+            sentEventIdsRef.current.delete(local.id)
+            throw cause
           }
         }
-        if (nextCursor && active) syncCursorRef.current = nextCursor
         if (active) setError('')
       } catch (cause) {
-        if (active) setError(cause.message || 'Não foi possível atualizar a agenda do Google.')
+        if (active) setError(cause.message || 'Não foi possível enviar os itens ao Google Agenda.')
       } finally { syncRunningRef.current = false }
     }
-    syncCalendar()
-    const timer = window.setInterval(syncCalendar, 60_000)
+    sendLocalChanges()
+    const timer = window.setInterval(sendLocalChanges, 60_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [googleToken, workspaceUid, user?.uid])
+  }, [googleToken, workspaceUid, user?.uid, loading])
 
   const openItems = items.filter((item) => statusOf(item) === 'open')
   const counts = Object.fromEntries(Object.keys(statusLabels).map((status) => [status, items.filter((item) => statusOf(item) === status).length]))
   const visibleItems = useMemo(() => items.filter((item) => filter === 'all' || statusOf(item) === filter).sort((a, b) => `${a.date || ''}T${a.time || ''}`.localeCompare(`${b.date || ''}T${b.time || ''}`)), [items, filter])
+  const selectedVisibleCount = visibleItems.filter((item) => selectedItemIds.has(item.id)).length
+
+  function toggleItemSelection(itemId) {
+    setSelectedItemIds((current) => {
+      const next = new Set(current)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }
+
+  function toggleVisibleSelection() {
+    setSelectedItemIds((current) => {
+      const next = new Set(current)
+      if (selectedVisibleCount === visibleItems.length) visibleItems.forEach((item) => next.delete(item.id))
+      else visibleItems.forEach((item) => next.add(item.id))
+      return next
+    })
+  }
+
+  function closeSelectionMode() {
+    setSelectionMode(false)
+    setSelectedItemIds(new Set())
+  }
+
+  async function deleteSelectedItems() {
+    const selectedItems = items.filter((item) => selectedItemIds.has(item.id))
+    if (!selectedItems.length) return
+    if (!window.confirm(`Excluir ${selectedItems.length} item(ns) selecionado(s) da agenda e do Firestore? A ação não pode ser desfeita.${googleToken ? ' Os eventos vinculados também serão removidos do Google Agenda.' : ''}`)) return
+    setDeletingSelected(true)
+    setError('')
+    setNotice('')
+    const failed = []
+    let pendingGoogleDeletes = 0
+    for (const item of selectedItems) {
+      try {
+        if (item.googleEventId && statusOf(item) !== 'cancelled') {
+          const pending = await deleteGoogleOrQueue(item.googleEventId)
+          if (pending) pendingGoogleDeletes += 1
+        }
+        await removeAgendaItem(workspaceUid, item.id)
+        itemsRef.current = itemsRef.current.filter((entry) => entry.id !== item.id)
+        setItems((current) => current.filter((entry) => entry.id !== item.id))
+        setSelectedItemIds((current) => {
+          const next = new Set(current)
+          next.delete(item.id)
+          return next
+        })
+      } catch (cause) {
+        failed.push(`${item.title}: ${cause.message || 'falha ao excluir'}`)
+      }
+    }
+    if (failed.length) setError(`Não foi possível excluir ${failed.length} item(ns): ${failed.join('; ')}`)
+    else setNotice(`${selectedItems.length} item(ns) excluído(s) da agenda.`)
+    if (pendingGoogleDeletes) setNotice((current) => `${current} A remoção de ${pendingGoogleDeletes} evento(s) do Google ficará pendente até conectar a conta.`)
+    setDeletingSelected(false)
+  }
 
   function startEdit(item) {
     setEditing(item.id)
@@ -302,6 +287,7 @@ export default function AgendaPage() {
   async function syncGoogle(method, id, item, token = googleToken) {
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events${id ? `/${encodeURIComponent(id)}` : ''}`
     const response = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(method === 'DELETE' ? {} : { body: JSON.stringify(googleEventBody(item)) }) })
+    if (method === 'DELETE' && (response.status === 404 || response.status === 410)) return null
     if (!response.ok) {
       const details = await response.json().catch(() => ({}))
       throw new Error(details.error?.message || 'Falha ao sincronizar com o Google Agenda. Reconecte a conta e tente novamente.')
@@ -342,12 +328,34 @@ export default function AgendaPage() {
       const result = alreadyGoogle ? await reauthenticateWithPopup(auth.currentUser, provider) : await linkWithPopup(auth.currentUser, provider)
       const credential = GoogleAuthProvider.credentialFromResult(result)
       if (!credential?.accessToken) throw new Error('O Google não retornou autorização para a agenda. Tente conectar novamente.')
-      syncCursorRef.current = ''
+      const token = credential.accessToken
+      syncRunningRef.current = true
       setGoogleToken(credential.accessToken)
       setGoogleEmail(result.user.providerData.find((entry) => entry.providerId === 'google.com')?.email || result.user.email || '')
-      setNotice('Google Agenda conectado. Importando e sincronizando seus eventos…')
+      const pendingItems = itemsRef.current.filter((item) => item.id && !item.googleEventId && statusOf(item) !== 'cancelled' && item.date)
+      const failedItems = []
+      for (const item of pendingItems) {
+        sentEventIdsRef.current.add(item.id)
+        try {
+          const created = await syncGoogle('POST', '', item, token)
+          await updateAgendaItem(workspaceUid, item.id, { googleEventId: created.id })
+          itemsRef.current = itemsRef.current.map((current) => current.id === item.id ? { ...current, googleEventId: created.id } : current)
+          setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, googleEventId: created.id } : entry))
+        } catch (cause) {
+          sentEventIdsRef.current.delete(item.id)
+          failedItems.push(`${item.title}: ${cause.message || 'falha no envio'}`)
+        }
+      }
+      if (failedItems.length) {
+        setError(`Google conectado, mas não foi possível enviar ${failedItems.length} item(ns): ${failedItems.join('; ')}`)
+        setNotice(`${pendingItems.length - failedItems.length} de ${pendingItems.length} item(ns) enviado(s).`)
+      } else {
+        setNotice(pendingItems.length
+          ? `${pendingItems.length} item(ns) enviado(s) ao Google Agenda. Eventos criados diretamente no Google não são importados.`
+          : 'Google Agenda conectado. Os itens já estavam enviados; novos itens serão enviados automaticamente.')
+      }
     } catch (cause) { setError(googleError(cause)) }
-    finally { setBusy(false) }
+    finally { syncRunningRef.current = false; setBusy(false) }
   }
 
   async function changeStatus(item, status) {
@@ -391,7 +399,7 @@ export default function AgendaPage() {
   return <div className="page-stack agenda-page">
     <section className="agenda-hero">
       <div><p className="eyebrow">ORGANIZAÇÃO DO DIA</p><h2>Agenda e tarefas</h2><p>Reuniões, lembretes e sua lista de prioridades em um só lugar.</p></div>
-      <div className="agenda-hero-actions"><button className="button button-secondary" onClick={connectGoogle} disabled={busy}>{googleToken ? `✓ ${googleEmail || 'Google conectado'}` : '↗ Conectar Google Agenda'}</button><button className="button button-primary" onClick={() => { cancelEdit(); editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); titleInputRef.current?.focus({ preventScroll: true }) }}>＋ Novo item</button></div>
+      <div className="agenda-hero-actions"><button className="button button-secondary" onClick={connectGoogle} disabled={busy || loading}>{loading ? 'Carregando agenda…' : busy ? 'Enviando itens…' : googleToken ? `✓ ${googleEmail || 'Google conectado'}` : '↗ Conectar Google Agenda'}</button><button className="button button-primary" onClick={() => { cancelEdit(); editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); titleInputRef.current?.focus({ preventScroll: true }) }}>＋ Novo item</button></div>
     </section>
     {(error || notice) && <div className={error ? 'alert alert-error agenda-message' : 'alert agenda-message'} role={error ? 'alert' : 'status'}>{error || notice}</div>}
 
@@ -416,20 +424,28 @@ export default function AgendaPage() {
       </section>
 
       <section className="panel agenda-list-panel">
-        <header className="agenda-section-heading agenda-list-heading"><div><p className="eyebrow">SUA ROTINA</p><h3>Checklist e compromissos</h3></div><span className="agenda-live-sync">{googleToken ? '● Sincronização ativa' : '● Sincronização pausada'}</span></header>
+        <header className="agenda-section-heading agenda-list-heading"><div><p className="eyebrow">SUA ROTINA</p><h3>Checklist e compromissos</h3></div><span className="agenda-live-sync">{googleToken ? '● Envio ao Google ativo' : '● Envio ao Google pausado'}</span></header>
         <nav className="agenda-filters" aria-label="Filtrar itens da agenda">{[['open', 'Em aberto'], ['in_progress', 'Em andamento'], ['completed', 'Finalizados'], ['cancelled', 'Cancelados'], ['all', 'Todos']].map(([value, label]) => <button key={value} className={filter === value ? 'agenda-filter-active' : ''} onClick={() => setFilter(value)}>{label}<span>{value === 'all' ? items.length : counts[value]}</span></button>)}</nav>
         {permission !== 'granted' && <div className="agenda-notification-hint"><span>◷</span><div><strong>Receba lembretes no navegador</strong><small>{permission === 'unsupported' ? 'Este navegador não oferece notificações.' : 'Ative as notificações para receber avisos com o sistema aberto.'}</small></div>{permission !== 'unsupported' && <button onClick={enableNotifications}>Ativar</button>}</div>}
+        {!loading && visibleItems.length > 0 && <div className="agenda-selection-toolbar">
+          {!selectionMode ? <button type="button" className="agenda-selection-open" onClick={() => setSelectionMode(true)}>Selecionar</button> : <>
+            <label><input type="checkbox" checked={selectedVisibleCount === visibleItems.length} onChange={toggleVisibleSelection} /><span>{selectedVisibleCount === visibleItems.length ? 'Desmarcar visíveis' : 'Selecionar visíveis'}</span></label>
+            {selectedItemIds.size > 0 && <><span className="agenda-selection-count">{selectedItemIds.size} selecionado(s)</span><button type="button" className="agenda-delete-action" disabled={deletingSelected} onClick={deleteSelectedItems}>{deletingSelected ? 'Excluindo…' : `Excluir selecionados (${selectedItemIds.size})`}</button></>}
+            <button type="button" className="agenda-selection-close" disabled={deletingSelected} onClick={closeSelectionMode}>Concluir</button>
+          </>}
+        </div>}
         {loading ? <div className="agenda-empty">Carregando sua agenda…</div> : visibleItems.length === 0 ? <div className="agenda-empty"><span>✓</span><strong>{filter === 'all' ? 'Sua agenda está vazia' : `Nenhum item ${statusLabels[filter]?.toLowerCase() || ''}`}</strong><small>Adicione uma tarefa, reunião ou lembrete para começar.</small></div> : <div className="agenda-items">{visibleItems.map((item) => {
           const status = statusOf(item)
           return <article className={`agenda-item agenda-item-${status}`} key={item.id}>
-            <div className="agenda-item-copy"><div className="agenda-item-title"><strong>{item.title}</strong>{item.priority === 'high' && !['completed', 'cancelled'].includes(status) && <span className="agenda-priority">Alta</span>}</div><div className="agenda-item-meta"><span className={`agenda-type agenda-type-${item.type}`}>{item.type === 'meeting' ? 'Reunião' : item.type === 'reminder' ? 'Lembrete' : 'Tarefa'}</span><span>{dateLabel(item.date)}{item.time ? ` · ${item.time}` : ''}</span><span className={`agenda-status-pill agenda-status-${status}`}>{statusLabels[status]}</span>{item.googleEventId && <span className="agenda-synced">Google Agenda</span>}</div>{item.details && <p>{item.details}</p>}</div>
+            {selectionMode && <label className="agenda-item-select" aria-label={`Selecionar ${item.title}`}><input type="checkbox" checked={selectedItemIds.has(item.id)} onChange={() => toggleItemSelection(item.id)} /></label>}
+            <div className="agenda-item-copy"><div className="agenda-item-title"><strong>{item.title}</strong>{item.priority === 'high' && !['completed', 'cancelled'].includes(status) && <span className="agenda-priority">Alta</span>}</div><div className="agenda-item-meta"><span className={`agenda-type agenda-type-${item.type}`}>{item.type === 'meeting' ? 'Reunião' : item.type === 'reminder' ? 'Lembrete' : 'Tarefa'}</span><span>{dateLabel(item.date)}{item.time ? ` · ${item.time}` : ''}</span><span className={`agenda-status-pill agenda-status-${status}`}>{statusLabels[status]}</span>{item.googleEventId ? <span className="agenda-synced" title="Este item foi enviado e está vinculado ao Google Agenda">✓ Conectado ao Google Agenda</span> : <span className="agenda-not-synced" title="Este item ainda não foi enviado ao Google Agenda">Ainda não enviado ao Google Agenda</span>}</div>{item.details && <p>{item.details}</p>}</div>
             <div className="agenda-item-actions"><button className="agenda-edit-action" aria-label={`Editar ${item.title}`} title="Editar item" onClick={() => startEdit(item)}>Editar</button>{status !== 'completed' && status !== 'cancelled' && <select aria-label={`Alterar status de ${item.title}`} value={status} onChange={(event) => changeStatus(item, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}<button className="agenda-delete-action" aria-label={`Excluir ${item.title} da agenda e do banco de dados`} title="Excluir da agenda e do banco de dados" onClick={() => deleteItem(item)}>Excluir</button></div>
           </article>
         })}</div>}
-        <footer className="agenda-list-footer"><span>{visibleItems.length} {visibleItems.length === 1 ? 'item' : 'itens'}</span><span>{googleToken ? 'Atualização do Google a cada minuto' : 'Salvo automaticamente'}</span></footer>
+        <footer className="agenda-list-footer"><span>{visibleItems.length} {visibleItems.length === 1 ? 'item' : 'itens'}</span><span>{googleToken ? 'Envio para o Google ativo' : 'Salvo automaticamente'}</span></footer>
       </section>
     </div>
 
-    <section className="agenda-integration-note"><span>ⓘ</span><p><strong>Sincronização nos dois sentidos</strong><br />Eventos criados ou alterados no Google são importados para o sistema. Cancelamentos no Google aparecem como cancelados aqui; cancelamentos feitos nesta agenda também removem o evento do calendário. Mantenha a tela aberta e conectada para receber atualizações do Google.</p>{permission !== 'granted' && <button className="button button-secondary" onClick={enableNotifications} disabled={permission === 'unsupported'}>Ativar notificações</button>}</section>
+    <section className="agenda-integration-note"><span>ⓘ</span><p><strong>Envio para o Google Agenda</strong><br />Os itens criados ou alterados neste sistema são enviados ao Google quando a conta está conectada. Eventos criados ou alterados diretamente no Google não são importados para cá. Cancelar ou excluir um item neste sistema também remove o evento vinculado do Google.</p>{permission !== 'granted' && <button className="button button-secondary" onClick={enableNotifications} disabled={permission === 'unsupported'}>Ativar notificações</button>}</section>
   </div>
 }

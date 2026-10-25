@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Brand from '../components/Brand.jsx'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useProducts from '../hooks/useProducts.js'
 import usePreferences from '../hooks/usePreferences.js'
+import useClients from '../hooks/useClients.js'
+import useQuotes from '../hooks/useQuotes.js'
+import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
+import useFinancialTransactions from '../hooks/useFinancialTransactions.js'
+import usePurchases from '../hooks/usePurchases.js'
 
 function DailySystemAlerts({ preferences }) {
   const { user } = useAuth()
@@ -42,15 +47,171 @@ const navigation = [
   { label: 'Dashboard', path: '/', glyph: '▦' },
   { label: 'Pedidos', path: '/pedidos', glyph: '▤' },
   { label: 'Vendas externas', path: '/vendas', glyph: '↗' },
+  { label: 'Clientes', path: '/clientes', glyph: '♧' },
   { label: 'Financeiro', path: '/financeiro', glyph: '◉' },
   { label: 'Produtos', path: '/produtos', glyph: '◇' },
   { label: 'Produção', path: '/producao', glyph: '⚙' },
   { label: 'Estoque', path: '/estoque', glyph: '▥' },
-  { label: 'Compras', path: '/compras', glyph: '＋' },
   { label: 'Relatórios', path: '/relatorios', glyph: '▧' },
   { label: 'Agenda e tarefas', path: '/agenda', glyph: '◷' },
   { label: 'Configurações', path: '/configuracoes', glyph: '⚙' },
 ]
+
+function normalizeSearch(value) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim()
+}
+
+function GlobalNavigationSearch({ onNavigate, accountName }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { user } = useAuth()
+  const { sales, error: salesError } = useExternalSales()
+  const { products, error: productsError } = useProducts()
+  const { clients, error: clientsError } = useClients()
+  const { quotes, error: quotesError } = useQuotes()
+  const { materials, error: materialsError } = useFinancialMaterials()
+  const { transactions, error: transactionsError } = useFinancialTransactions()
+  const { purchases, error: purchasesError } = usePurchases()
+  const inputRef = useRef(null)
+  const [query, setQuery] = useState('')
+  const [focused, setFocused] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const searchErrors = [salesError, productsError, clientsError, quotesError, materialsError, transactionsError, purchasesError].filter(Boolean)
+  const matches = useMemo(() => {
+    const term = normalizeSearch(query)
+    const pages = navigation.map((item) => ({
+      key: `page-${item.path}`,
+      label: item.label,
+      detail: item.path === '/' ? 'Página inicial' : item.path.replace('/', ''),
+      path: item.path,
+      glyph: item.glyph,
+      kind: 'page',
+      ...item,
+      keywords: `${item.label} ${item.path.replace('/', ' ')} ${({
+        '/': 'inicio painel principal',
+        '/pedidos': 'encomendas ordens acompanhar',
+        '/vendas': 'orçamento orcamento comprovante venda externa',
+        '/clientes': 'consumidor cadastro contato cpf',
+        '/financeiro': 'contas despesas receitas dinheiro',
+        '/produtos': 'catalogo catálogo cadastrar sku',
+        '/producao': 'fabricação fabricação fila imprimir',
+        '/estoque': 'inventário material insumo quantidade',
+        '/relatorios': 'relatório exportar excel resumo',
+        '/agenda': 'tarefas calendário compromissos',
+        '/configuracoes': 'configuração empresa perfil dados',
+      })[item.path] || ''}`,
+    }))
+    if (!term) return pages.filter((item) => ['/', '/pedidos', '/vendas', '/produtos', '/estoque'].includes(item.path)).slice(0, 6)
+
+    const records = [
+      ...sales.map((sale) => {
+        const itemNames = (sale.items || []).map((item) => item.description).filter(Boolean).join(', ')
+        const label = `${sale.client?.name || 'Cliente'} · Pedido #${sale.id.slice(0, 7).toUpperCase()}`
+        return { key: `sale-${sale.id}`, label, detail: `Pedido/venda · ${itemNames || 'sem itens'} · ${sale.soldAt || ''}`, path: '/vendas', glyph: '▤', kind: 'record', searchable: `${label} ${sale.id} ${sale.client?.phone || ''} ${sale.client?.email || ''} ${itemNames} ${sale.channel || ''}` }
+      }),
+      ...quotes.map((quote) => {
+        const itemNames = (quote.items || []).map((item) => item.description).filter(Boolean).join(', ')
+        const label = `${quote.client?.name || 'Cliente'} · ${quote.quoteNumber || `ORC-${quote.id.slice(0, 8).toUpperCase()}`}`
+        return { key: `quote-${quote.id}`, label, detail: `Orçamento · ${itemNames || 'sem itens'} · ${quote.quoteDate || ''}`, path: '/vendas', glyph: '▤', kind: 'record', searchable: `${label} ${quote.id} ${quote.client?.phone || ''} ${itemNames}` }
+      }),
+      ...products.map((product) => ({ key: `product-${product.id}`, label: product.name, detail: `Produto · ${product.sku || 'sem SKU'} · ${product.category || 'sem categoria'}`, path: '/produtos', glyph: '◇', kind: 'record', searchable: `${product.name} ${product.sku || ''} ${product.category || ''} ${product.description || ''}` })),
+      ...clients.map((client) => ({ key: `client-${client.id}`, label: client.name, detail: `Cliente · ${client.phone || client.email || client.taxId || 'cadastro'}`, path: '/clientes', glyph: '♧', kind: 'record', searchable: `${client.name} ${client.phone || ''} ${client.email || ''} ${client.taxId || ''} ${client.city || ''}` })),
+      ...materials.map((material) => ({ key: `material-${material.id}`, label: material.name, detail: `Material/insumo · estoque ${material.quantity ?? 0}`, path: '/financeiro', glyph: '▥', kind: 'record', searchable: `${material.name} ${material.category || ''} ${material.unit || ''}` })),
+      ...transactions.map((transaction) => ({ key: `transaction-${transaction.id}`, label: transaction.description || 'Lançamento financeiro', detail: `${transaction.type === 'income' ? 'Receita' : 'Despesa'} · ${transaction.category || 'sem categoria'} · ${transaction.date || ''}`, path: '/financeiro', glyph: '◉', kind: 'record', searchable: `${transaction.description || ''} ${transaction.category || ''} ${transaction.notes || ''} ${transaction.sourcePurchaseId || ''}` })),
+      ...purchases.map((purchase) => ({ key: `purchase-${purchase.id}`, label: purchase.productName || 'Compra', detail: `Histórico de compra · ${purchase.supplier || 'fornecedor não informado'} · ${purchase.date || ''}`, path: '/financeiro', glyph: '＋', kind: 'record', searchable: `${purchase.productName || ''} ${purchase.supplier || ''} ${purchase.notes || ''} ${purchase.id}` })),
+    ]
+    if ([accountName, user?.displayName, user?.email].filter(Boolean).some((value) => normalizeSearch(value).includes(term))) {
+      records.push({ key: 'current-user', label: accountName || user?.displayName || 'Usuário da conta', detail: `Usuário da conta · ${user?.email || ''}`, path: '/configuracoes', glyph: '●', kind: 'record', searchable: `${accountName || ''} ${user?.displayName || ''} ${user?.email || ''}` })
+    }
+    const matchingRecords = records.filter((record) => normalizeSearch(record.searchable).includes(term))
+      .sort((left, right) => Number(!normalizeSearch(left.label).startsWith(term)) - Number(!normalizeSearch(right.label).startsWith(term)))
+      .slice(0, 8)
+    const matchingPages = pages.filter((item) => normalizeSearch(item.keywords).includes(term)).slice(0, 3)
+    return [...matchingRecords, ...matchingPages].slice(0, 10)
+  }, [query, sales, products, clients, quotes, materials, transactions, purchases, accountName, user?.displayName, user?.email])
+
+  useEffect(() => {
+    setQuery('')
+    setFocused(false)
+    setActiveIndex(0)
+  }, [location.pathname])
+
+  useEffect(() => {
+    function handleShortcut(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
+
+  function choosePage(page) {
+    if (!page) return
+    navigate(page.path)
+    setQuery('')
+    setFocused(false)
+    onNavigate()
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === 'ArrowDown' && matches.length) {
+      event.preventDefault()
+      setActiveIndex((index) => (index + 1) % matches.length)
+    } else if (event.key === 'ArrowUp' && matches.length) {
+      event.preventDefault()
+      setActiveIndex((index) => (index - 1 + matches.length) % matches.length)
+    } else if (event.key === 'Enter' && matches.length) {
+      event.preventDefault()
+      choosePage(matches[activeIndex])
+    } else if (event.key === 'Escape') {
+      setFocused(false)
+      inputRef.current?.blur()
+    }
+  }
+
+  return <div className="global-search">
+    <span className="global-search-icon" aria-hidden="true">⌕</span>
+    <input
+      ref={inputRef}
+      type="search"
+      role="combobox"
+      aria-label="Buscar páginas, pedidos, produtos, clientes e lançamentos"
+      aria-autocomplete="list"
+      aria-expanded={focused && (matches.length > 0 || Boolean(query.trim()))}
+      aria-controls="global-search-suggestions"
+      aria-activedescendant={focused && matches[activeIndex] ? `global-search-option-${activeIndex}` : undefined}
+      placeholder="Buscar pedidos, produtos, clientes..."
+      value={query}
+      onChange={(event) => { setQuery(event.target.value); setActiveIndex(0) }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onKeyDown={handleKeyDown}
+    />
+    <kbd>Ctrl K</kbd>
+    {focused && (matches.length > 0 || query.trim()) && <div className="global-search-suggestions" id="global-search-suggestions" role="listbox" aria-label="Resultados da busca">
+      <div className="global-search-caption">{query.trim() ? 'Resultados e sugestões' : 'Acesso rápido'}</div>
+      {searchErrors.length > 0 && <div className="global-search-warning" role="status">Alguns registros não puderam ser pesquisados. Verifique a conexão e as permissões do Firestore.</div>}
+      {matches.length === 0 && <div className="global-search-no-results">Nenhum registro ou área encontrado.</div>}
+      {matches.map((page, index) => <button
+        id={`global-search-option-${index}`}
+        key={page.key}
+        type="button"
+        role="option"
+        aria-selected={index === activeIndex}
+        className={`global-search-option ${index === activeIndex ? 'global-search-option-active' : ''}`}
+        onMouseEnter={() => setActiveIndex(index)}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => choosePage(page)}
+      >
+        <span className="global-search-option-icon" aria-hidden="true">{page.glyph}</span>
+        <span><strong>{page.label}</strong><small>{page.detail || (page.path === '/' ? 'Página inicial' : page.path.replace('/', ''))}</small></span>
+        <span className="global-search-enter" aria-hidden="true">↵</span>
+      </button>)}
+    </div>}
+  </div>
+}
 
 export default function AdminLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -79,6 +240,7 @@ export default function AdminLayout() {
       <header className="topbar">
         <button className="mobile-menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu">☰</button>
         <div className="topbar-heading"><span>{preferences.businessName || 'Print Caju'} Admin</span><h1>{current}</h1></div>
+        <GlobalNavigationSearch accountName={displayName} onNavigate={() => setMenuOpen(false)} />
         <div className="topbar-actions"><span className="private-chip"><span />Área privada</span><Link className="icon-button settings-shortcut" aria-label="Configurações" to="/configuracoes">⚙</Link><button className="button button-quiet signout-button" onClick={signOut}>Sair</button></div>
       </header>
       <main className="page-content"><DailySystemAlerts preferences={preferences} /><Outlet /></main>
