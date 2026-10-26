@@ -3,7 +3,9 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useFinancialMaterials from '../hooks/useFinancialMaterials.js'
 import useFinancialTransactions from '../hooks/useFinancialTransactions.js'
+import useProducts from '../hooks/useProducts.js'
 import { createMaterialPurchase, deleteMaterialPurchaseFromHistory, importHistoricalMaterialPurchase, loadMaterialPurchaseForTransaction, updateMaterialPurchaseFromHistory } from '../services/finance/materials.js'
+import { calculateFinancialControl } from '../services/finance/control.js'
 import { calculatePurchaseBaseQuantity, formatUnit, purchaseUnits } from '../services/finance/units.js'
 import { createFinancialTransaction, deleteFinancialTransaction, updateFinancialTransaction, voidFinancialTransaction } from '../services/finance/transactions.js'
 import { deleteLegacyPurchaseFromHistory } from '../services/inventory/purchases.js'
@@ -72,6 +74,10 @@ function errorMessage(cause) {
 
 function SummaryCard({ title, value, detail, tone }) {
   return <article className="finance-summary-card"><div><span>{title}</span><span className={`finance-summary-icon finance-tone-${tone}`} aria-hidden="true">{tone === 'income' ? '↗' : tone === 'expense' ? '↘' : tone === 'balance' ? '＝' : '＋'}</span></div><strong>{value}</strong><small>{detail}</small></article>
+}
+
+function ControlMetric({ label, value, detail, tone }) {
+  return <article className={`finance-control-metric finance-control-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>
 }
 
 function HistoryStockImport({ entry, materials, onCancel, onImported }) {
@@ -222,6 +228,7 @@ export default function FinancePage() {
   const { sales, loading: salesLoading, error: salesError } = useExternalSales()
   const { transactions, loading: transactionsLoading, error: transactionsError } = useFinancialTransactions()
   const { materials, loading: materialsLoading, error: materialsError } = useFinancialMaterials()
+  const { products, loading: productsLoading, error: productsError } = useProducts()
   const [month, setMonth] = useState(localMonth)
   const [form, setForm] = useState(emptyForm)
   const [materialForm, setMaterialForm] = useState(emptyMaterialForm)
@@ -245,6 +252,10 @@ export default function FinancePage() {
     const expenses = saleFees + manualExpenses
     return { monthTransactions, salesReceived, saleFees, otherIncome, manualExpenses, expenses, balance: salesReceived + otherIncome - expenses }
   }, [month, sales, transactions])
+  const control = useMemo(
+    () => calculateFinancialControl({ sales, transactions, products, month }),
+    [month, sales, transactions, products],
+  )
 
   function resetForm() {
     setForm(emptyForm())
@@ -390,9 +401,41 @@ export default function FinancePage() {
 
     <section className="finance-summary-grid" aria-label={`Resumo de ${monthLabel(month)}`}>
       <SummaryCard title="Recebido das vendas" value={loading ? '…' : loadError ? '—' : money(report.salesReceived)} detail="Pagamentos recebidos em vendas ativas" tone="income" />
-      <SummaryCard title="Outras receitas" value={loading ? '…' : loadError ? '—' : money(report.otherIncome)} detail="Entradas manuais fora das vendas" tone="other" />
+      <SummaryCard title="Outras receitas" value={loading ? '…' : loadError ? '—' : money(report.otherIncome)} detail="Entradas manuais, incluindo aportes" tone="other" />
       <SummaryCard title="Despesas e taxas" value={loading ? '…' : loadError ? '—' : money(report.expenses)} detail={`${money(report.manualExpenses)} despesas · ${money(report.saleFees)} taxas das vendas`} tone="expense" />
-      <SummaryCard title="Resultado do mês" value={loading ? '…' : loadError ? '—' : money(report.balance)} detail="Entradas menos despesas e taxas" tone="balance" />
+      <SummaryCard title="Saldo do mês" value={loading ? '…' : loadError ? '—' : money(report.balance)} detail="Movimentação líquida, incluindo aportes" tone="balance" />
+    </section>
+
+    <section className="panel finance-control-panel" aria-labelledby="finance-control-heading">
+      <header className="finance-section-heading"><div><p className="eyebrow">DECISÃO DE CAIXA</p><h3 id="finance-control-heading">Controle de finanças</h3><p>Separe primeiro as despesas e taxas registradas; o saldo livre é o que sobrou das entradas recebidas no período.</p></div><span className="count-chip">{monthLabel(month)}</span></header>
+      {productsError && <div className="sales-error" role="alert">{productsError} Os custos por pedido podem estar incompletos.</div>}
+      <div className="finance-control-metrics">
+        <ControlMetric label="Verba para reposição" value={loading ? '…' : loadError ? '—' : money(control.replenishment)} detail={`${money(control.expenses)} despesas + ${money(control.saleFees)} taxas`} tone="reserve" />
+        <ControlMetric label="Lucro operacional de caixa" value={loading ? '…' : loadError ? '—' : money(control.operatingResult)} detail="Entradas recebidas menos despesas e taxas; sem aportes" tone={control.operatingResult < 0 ? 'negative' : 'profit'} />
+        <ControlMetric label="Aportes recebidos" value={loading ? '…' : loadError ? '—' : money(control.investmentIncome)} detail="Capital do negócio; não é lucro" tone="investment" />
+        <ControlMetric label="Disponível para gastar" value={loading ? '…' : loadError ? '—' : money(control.freeCash)} detail={control.freeCash < 0 ? `Faltam ${money(Math.abs(control.freeCash))} para cobrir as saídas` : 'Caixa após despesas, taxas e aportes'} tone={control.freeCash < 0 ? 'negative' : 'available'} />
+        <ControlMetric label="Produção estimada dos pedidos" value={salesLoading || productsLoading ? '…' : money(control.estimatedProductionCost)} detail="Referência de reinvestimento calculada pelas fichas técnicas" tone="investment" />
+      </div>
+      <p className="finance-control-note">Use o valor disponível como limite de referência, não como saldo bancário total: o cálculo considera somente movimentações registradas e inclui aportes no caixa, mas aportes não são lucro. Como o sistema não guarda a data de cada parcela, recebimentos são atribuídos ao mês da venda. O custo de produção é uma estimativa pelas fichas técnicas atuais, exibida à parte para não descontar novamente compras de material já lançadas como despesas.</p>
+
+      <div className="finance-control-tables">
+        <div className="finance-control-table-wrap">
+          <h4>Despesas com materiais</h4>
+          {loading ? <div className="sales-loading">Carregando despesas…</div> : control.materialExpenses.length ? <div className="finance-table-scroll"><table className="finance-table finance-control-table"><thead><tr><th>Material / descrição do lançamento</th><th>Registros</th><th className="finance-amount-column">Gasto</th></tr></thead><tbody>{control.materialExpenses.map((entry) => <tr key={entry.name}><td>{entry.name}</td><td>{entry.count}</td><td className="finance-amount finance-amount-expense">{money(entry.amount)}</td></tr>)}</tbody></table></div> : <p className="finance-control-empty">Nenhuma despesa de material registrada neste período.</p>}
+        </div>
+        <div className="finance-control-table-wrap finance-material-estimates">
+          <div className="finance-material-estimates-heading">
+            <div><span className="finance-material-estimates-icon" aria-hidden="true">▦</span><span><h4>Materiais estimados nos pedidos</h4><small>Consumo previsto pelas fichas técnicas dos produtos</small></span></div>
+            <span className="finance-material-estimates-total"><small>Total estimado</small><strong>{productsLoading ? '…' : money(control.materialUsage.reduce((total, item) => total + item.cost, 0))}</strong></span>
+          </div>
+          {productsLoading ? <div className="sales-loading">Calculando materiais…</div> : control.materialUsage.length ? <div className="finance-table-scroll"><table className="finance-table finance-control-table"><thead><tr><th>Material</th><th>Consumo previsto</th><th className="finance-amount-column">Custo estimado</th></tr></thead><tbody>{control.materialUsage.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{Number(entry.quantity.toFixed(3)).toLocaleString('pt-BR')} {entry.unit}</td><td className="finance-amount"><strong>{money(entry.cost)}</strong></td></tr>)}</tbody></table></div> : <div className="finance-material-estimates-empty"><span aria-hidden="true">▧</span><strong>Sem consumo calculado neste período</strong><small>Cadastre fichas técnicas nos produtos e registre pedidos para ver os materiais previstos aqui.</small></div>}
+        </div>
+      </div>
+
+      <div className="finance-control-orders">
+        <h4>Produção estimada por pedido</h4>
+        {salesLoading || productsLoading ? <div className="sales-loading">Calculando custos dos pedidos…</div> : control.orders.length ? <div className="finance-table-scroll"><table className="finance-table finance-control-table"><thead><tr><th>Data</th><th>Pedido / cliente</th><th>Total do pedido</th><th>Custo de produção estimado</th><th>Resultado estimado</th></tr></thead><tbody>{control.orders.map((order) => <tr key={order.id}><td>{dateLabel(order.date)}</td><td><strong>#{order.id.slice(0, 7).toUpperCase()}</strong><small>{order.client}{order.unpricedItems ? ` · ${order.unpricedItems} item(ns) sem custo cadastrado` : ''}</small></td><td>{money(order.total)}</td><td>{money(order.estimatedCost)}</td><td className={order.estimatedResult < 0 ? 'finance-amount-expense' : 'finance-amount-income'}>{money(order.estimatedResult)}<small>Antes de despesas gerais{order.unpricedItems ? ' · estimativa parcial' : ''}</small></td></tr>)}</tbody></table></div> : <p className="finance-control-empty">Nenhum pedido ativo neste período.</p>}
+      </div>
     </section>
 
     <section className="panel finance-entry-panel">

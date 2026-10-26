@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useProducts from '../hooks/useProducts.js'
 import useFinancialTransactions from '../hooks/useFinancialTransactions.js'
+import { calculateFinancialControl } from '../services/finance/control.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { watchAgendaItems } from '../services/agenda/agenda.js'
 
@@ -56,7 +57,7 @@ function MonthBars({ transactions, month }) {
 export default function DashboardPage() {
   const { sales, loading: salesLoading, error: salesError } = useExternalSales()
   const { products, loading: productsLoading } = useProducts()
-  const { transactions, loading: financeLoading } = useFinancialTransactions()
+  const { transactions, loading: financeLoading, error: financeError } = useFinancialTransactions()
   const { workspaceUid } = useAuth()
   const [agendaItems, setAgendaItems] = useState([])
   const [agendaLoading, setAgendaLoading] = useState(true)
@@ -77,6 +78,7 @@ export default function DashboardPage() {
   const monthTransactions = transactions.filter((row) => row.status !== 'cancelled' && row.date?.startsWith(month))
   const income = monthTransactions.filter((row) => row.type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0)
   const expenses = monthTransactions.filter((row) => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0)
+  const financialControl = calculateFinancialControl({ sales, transactions, products, month })
   const agendaSoon = useMemo(() => unfinishedAgenda.filter((item) => item.date >= today).sort((a, b) => `${a.date}T${a.time || ''}`.localeCompare(`${b.date}T${b.time || ''}`)).slice(0, 5), [unfinishedAgenda, today])
   const recentSales = useMemo(() => [...activeSales].sort((a, b) => (b.soldAt || '').localeCompare(a.soldAt || '')).slice(0, 5), [activeSales])
   const monthLabel = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(now)
@@ -98,8 +100,18 @@ export default function DashboardPage() {
         <Link to="/pedidos" className="dashboard-operation-card"><span className="dashboard-operation-icon dashboard-tone-blue">▤</span><span><small>Pedidos ativos</small><strong>{salesLoading ? '…' : activeSales.length}</strong><em>{lateOrders.length ? `${lateOrders.length} atrasado(s)` : 'Nenhum atraso'}</em></span></Link>
         <Link to="/estoque" className="dashboard-operation-card"><span className="dashboard-operation-icon dashboard-tone-orange">▦</span><span><small>Estoque baixo</small><strong>{productsLoading ? '…' : lowStock.length}</strong><em>{lowStock.length ? 'Produto(s) precisam de reposição' : 'Tudo dentro do mínimo'}</em></span></Link>
         <Link to="/agenda" className="dashboard-operation-card"><span className="dashboard-operation-icon dashboard-tone-purple">◷</span><span><small>Tarefas em aberto</small><strong>{agendaLoading ? '…' : unfinishedAgenda.length}</strong><em>{agendaItems.filter((item) => itemStatus(item) === 'in_progress').length} em andamento</em></span></Link>
-        <Link to="/financeiro" className="dashboard-operation-card"><span className="dashboard-operation-icon dashboard-tone-green">R$</span><span><small>Saldo do mês</small><strong>{financeLoading ? '…' : money(income - expenses)}</strong><em>{monthLabel}</em></span></Link>
+        <Link to="/financeiro" className="dashboard-operation-card"><span className="dashboard-operation-icon dashboard-tone-green">R$</span><span><small>Saldo livre do mês</small><strong>{financeLoading || salesLoading ? '…' : financeError || salesError ? '—' : money(financialControl.freeCash)}</strong><em>{monthLabel}</em></span></Link>
       </div>
+    </section>
+
+    <section className="panel dashboard-cash-control" aria-labelledby="cash-control-heading">
+      <div className="panel-heading"><div><h2 id="cash-control-heading">Controle de finanças</h2><p>Referência do caixa para decidir quanto separar e quanto pode ficar livre · {monthLabel}</p></div><Link className="text-link" to="/financeiro">Ver detalhes <span>→</span></Link></div>
+      <div className="dashboard-cash-metrics">
+        <div><small>Destinado à reposição</small><strong>{financeLoading || salesLoading ? '…' : financeError || salesError ? '—' : money(financialControl.replenishment)}</strong><em>Despesas e taxas registradas</em></div>
+        <div><small>Lucro operacional de caixa</small><strong>{financeLoading || salesLoading ? '…' : financeError || salesError ? '—' : money(financialControl.operatingResult)}</strong><em>Entradas menos despesas e taxas; sem aportes</em></div>
+        <div><small>Disponível para gastar</small><strong>{financeLoading || salesLoading ? '…' : financeError || salesError ? '—' : money(financialControl.freeCash)}</strong><em>{financeError || salesError ? 'Falha ao carregar os dados financeiros' : financialControl.freeCash < 0 ? 'Caixa abaixo das saídas registradas' : 'Caixa após separar a reposição; inclui aportes'}</em></div>
+      </div>
+      <p className="dashboard-cash-note">Estimativa baseada nos registros do mês; não representa o saldo bancário e não inclui saldo inicial não lançado. Sem histórico das parcelas, recebimentos são atribuídos ao mês da venda.</p>
     </section>
 
     <section className="dashboard-grid dashboard-detail-grid">

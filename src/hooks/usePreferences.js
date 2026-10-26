@@ -13,15 +13,16 @@ export function applyBrandPreferences(preferences = DEFAULT_PREFERENCES) {
   const green = channel(color.slice(3, 5))
   const blue = channel(color.slice(5, 7))
   const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-  const accentHover = `color-mix(in srgb, ${color} 82%, #1E293B)`
-  const accentSoft = `color-mix(in srgb, ${color} 12%, white)`
-  const accentBorder = `color-mix(in srgb, ${color} 44%, white)`
-  const accentShadow = `color-mix(in srgb, ${color} 16%, transparent)`
-  const pageBackground = `color-mix(in srgb, ${color} 18%, #F8F7F4)`
-  const surfaceBackground = `color-mix(in srgb, ${color} 7%, white)`
-  const mutedSurface = `color-mix(in srgb, ${color} 13%, white)`
-  const borderColor = `color-mix(in srgb, ${color} 19%, #E6E3DD)`
+  const accentHover = `color-mix(in srgb, ${color} 82%, #17212f)`
+  const accentSoft = `color-mix(in srgb, ${color} 9%, white)`
+  const accentBorder = `color-mix(in srgb, ${color} 34%, white)`
+  const accentShadow = `color-mix(in srgb, ${color} 17%, transparent)`
+  const pageBackground = `color-mix(in srgb, ${color} 2.5%, #f6f7f8)`
+  const surfaceBackground = `color-mix(in srgb, ${color} 1.5%, white)`
+  const mutedSurface = `color-mix(in srgb, ${color} 4.5%, #f7f8fa)`
+  const borderColor = `color-mix(in srgb, ${color} 10%, #dfe3e8)`
   root.style.setProperty('--accent', color)
+  root.style.setProperty('--accent-rgb', `${Number.parseInt(color.slice(1, 3), 16)} ${Number.parseInt(color.slice(3, 5), 16)} ${Number.parseInt(color.slice(5, 7), 16)}`)
   root.style.setProperty('--accent-hover', accentHover)
   root.style.setProperty('--accent-soft', accentSoft)
   root.style.setProperty('--accent-border', accentBorder)

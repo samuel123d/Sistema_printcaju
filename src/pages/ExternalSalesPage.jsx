@@ -5,6 +5,7 @@ import useClients from '../hooks/useClients.js'
 import useExternalSales from '../hooks/useExternalSales.js'
 import useProducts from '../hooks/useProducts.js'
 import useQuotes from '../hooks/useQuotes.js'
+import usePreferences from '../hooks/usePreferences.js'
 import { cancelExternalSale, cancelQuote, convertQuoteToSale, createExternalSale, createQuote, deleteExternalSale, deleteQuote, updateExternalSale } from '../services/sales/externalSales.js'
 import { saveClient } from '../services/clients/clients.js'
 import { printSalesDocument } from '../services/sales/printDocument.js'
@@ -317,6 +318,7 @@ export default function ExternalSalesPage() {
   const { sales, loading, error } = useExternalSales()
   const { quotes, loading: quotesLoading, error: quotesError } = useQuotes()
   const { business, error: businessError } = useBusinessDetails()
+  const { preferences } = usePreferences()
   const [formSale, setFormSale] = useState(null)
   const [formQuote, setFormQuote] = useState(null)
   const [formMode, setFormMode] = useState('sale')
@@ -359,7 +361,7 @@ export default function ExternalSalesPage() {
         paymentMethodLabel: type === 'quote' ? 'A combinar' : paymentMethodLabels[documentData.paymentMethod] || documentData.paymentMethod,
         paymentStatusLabel: paymentLabels[documentData.paymentStatus] || 'Pendente',
       }
-      printSalesDocument(data, business, type)
+      printSalesDocument(data, business, type, preferences.accentColor)
     } catch (cause) {
       setDocumentError(cause.message || 'Não foi possível abrir o documento para impressão.')
     }
