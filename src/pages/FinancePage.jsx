@@ -496,7 +496,7 @@ export default function FinancePage() {
       })}</tbody></table></div>}
     </section>
 
-    <section className="panel finance-ledger-panel">
+    <section className="panel finance-ledger-panel finance-history-ledger">
       <header className="finance-section-heading finance-ledger-heading"><div><p className="eyebrow">HISTÓRICO</p><h3>Lançamentos de {monthLabel(month)}</h3><p>Vendas aparecem no resumo; esta lista mostra receitas adicionais e despesas manuais.</p></div><span className="count-chip">{report.monthTransactions.length} registros</span></header>
       {transactionsLoading ? <div className="sales-loading">Carregando lançamentos…</div> : report.monthTransactions.length === 0 ? <div className="finance-empty"><span aria-hidden="true">＋</span><strong>Nenhum lançamento manual neste mês</strong><small>Use o formulário acima para registrar despesas ou outras receitas.</small></div> : <div className="finance-table-scroll"><table className="finance-table"><thead><tr><th>Data</th><th>Lançamento</th><th>Categoria</th><th>Pagamento</th><th>Status</th><th className="finance-amount-column">Valor</th><th>Ações</th></tr></thead><tbody>{report.monthTransactions.map((entry) => {
         const cancelled = entry.status === 'cancelled'

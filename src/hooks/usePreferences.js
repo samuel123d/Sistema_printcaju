@@ -17,7 +17,7 @@ export function applyBrandPreferences(preferences = DEFAULT_PREFERENCES) {
   const accentSoft = `color-mix(in srgb, ${color} 9%, white)`
   const accentBorder = `color-mix(in srgb, ${color} 34%, white)`
   const accentShadow = `color-mix(in srgb, ${color} 17%, transparent)`
-  const pageBackground = `color-mix(in srgb, ${color} 2.5%, #f6f7f8)`
+  const pageBackground = `color-mix(in srgb, ${color} 7%, #f6f7f8)`
   const surfaceBackground = `color-mix(in srgb, ${color} 1.5%, white)`
   const mutedSurface = `color-mix(in srgb, ${color} 4.5%, #f7f8fa)`
   const borderColor = `color-mix(in srgb, ${color} 10%, #dfe3e8)`
@@ -28,6 +28,7 @@ export function applyBrandPreferences(preferences = DEFAULT_PREFERENCES) {
   root.style.setProperty('--accent-border', accentBorder)
   root.style.setProperty('--accent-shadow', accentShadow)
   root.style.setProperty('--page-background', pageBackground)
+  root.style.setProperty('--page-glow', `color-mix(in srgb, ${color} 13%, transparent)`)
   root.style.setProperty('--surface-background', surfaceBackground)
   root.style.setProperty('--surface-muted', mutedSurface)
   root.style.setProperty('--line', borderColor)

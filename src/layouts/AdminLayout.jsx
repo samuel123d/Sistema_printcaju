@@ -237,6 +237,12 @@ export default function AdminLayout() {
       </div></div>
     </aside>
     <div className="main-column">
+      <div className="floating-cajus" aria-hidden="true">
+        <img className="floating-caju floating-caju-one" src="/printcaju-mark.png" alt="" />
+        <img className="floating-caju floating-caju-two" src="/printcaju-mark.png" alt="" />
+        <img className="floating-caju floating-caju-three" src="/printcaju-mark.png" alt="" />
+        <img className="floating-caju floating-caju-four" src="/printcaju-mark.png" alt="" />
+      </div>
       <header className="topbar">
         <button className="mobile-menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu">☰</button>
         <div className="topbar-heading"><span>{preferences.businessName || 'Print Caju'} Admin</span><h1>{current}</h1></div>
