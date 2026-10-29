@@ -93,7 +93,7 @@ export function printSalesDocument(documentData, company, type, accentColor) {
   <table class="items"><thead><tr><th>Produto / descrição</th><th class="number">Qtd.</th><th class="number">Valor unitário</th><th class="number">Total</th></tr></thead><tbody>${items}</tbody></table>
   <section class="totals"><div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>${Number(documentData.discount) > 0 ? `<div><span>Desconto</span><strong>− ${money(documentData.discount)}</strong></div>` : ''}<div class="total"><span>Total</span><strong>${money(documentData.total)}</strong></div>${!quote ? `<div><span>Recebido</span><strong>${money(documentData.receivedAmount)}</strong></div><div><span>Saldo pendente</span><strong>${money(documentData.outstandingAmount)}</strong></div>` : ''}</section>
   ${documentData.notes ? `<section class="notes"><strong>Observações</strong><div>${escapeHtml(documentData.notes)}</div></section>` : ''}
-  ${company.showDocumentSignatures !== false ? `<div class="signatures"><div>${escapeHtml(company.name || 'Vendedor')}</div><div>${escapeHtml(customer.name || 'Cliente')}</div></div>` : ''}
+  ${company.showDocumentSignatures !== false ? `<div class="signatures"><div>${escapeHtml('Samuel Anderson Machado Lopes')}</div><div>${escapeHtml(customer.name || 'Cliente')}</div></div>` : ''}
   <p class="disclaimer">${disclaimer}</p>${documentFooter ? `<section class="notes">${escapeHtml(documentFooter)}</section>` : ''}<footer class="footer">${escapeHtml(company.name || 'Print Caju')} · ${escapeHtml(number)}</footer>
 </main><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250))</script></body></html>`)
   popup.document.close()

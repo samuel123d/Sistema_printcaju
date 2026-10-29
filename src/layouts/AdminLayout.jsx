@@ -35,17 +35,16 @@ function DailySystemAlerts({ preferences }) {
     try {
       if (localStorage.getItem(key)) return
       localStorage.setItem(key, 'sent')
-      new Notification('Print Caju · Alertas diários', { body: `${counts.overdue} pedido(s) atrasado(s), ${counts.dueSoon} próximo(s) do prazo e ${counts.lowStock} produto(s) com estoque baixo.`, icon: '/printcaju-mark.png' })
+      new Notification('Print Caju · Alertas diários', { body: `${counts.overdue} venda(s) atrasada(s), ${counts.dueSoon} próximo(s) do prazo e ${counts.lowStock} produto(s) com estoque baixo.`, icon: '/printcaju-mark.png' })
     } catch (cause) { console.warn('Não foi possível exibir a notificação do navegador.', cause) }
   }, [user?.uid, today, counts.overdue, counts.dueSoon, counts.lowStock, preferences.desktopNotificationsEnabled])
 
   if (!counts.overdue && !counts.dueSoon && !counts.lowStock) return null
-  return <div className="daily-order-alert" role="status"><strong>Alertas</strong><span>{counts.overdue ? `${counts.overdue} pedido(s) atrasado(s)` : ''}{counts.overdue && counts.dueSoon ? ' · ' : ''}{counts.dueSoon ? `${counts.dueSoon} vencem em até ${preferences.dueAlertDays} dias` : ''}{(counts.overdue || counts.dueSoon) && counts.lowStock ? ' · ' : ''}{counts.lowStock ? `${counts.lowStock} produto(s) com estoque baixo` : ''}</span>{(counts.overdue || counts.dueSoon) && <Link to="/pedidos">Ver pedidos</Link>}{counts.lowStock > 0 && <Link to="/estoque">Ver estoque</Link>}</div>
+  return <div className="daily-order-alert" role="status"><strong>Alertas</strong><span>{counts.overdue ? `${counts.overdue} venda(s) atrasada(s)` : ''}{counts.overdue && counts.dueSoon ? ' · ' : ''}{counts.dueSoon ? `${counts.dueSoon} vencem em até ${preferences.dueAlertDays} dias` : ''}{(counts.overdue || counts.dueSoon) && counts.lowStock ? ' · ' : ''}{counts.lowStock ? `${counts.lowStock} produto(s) com estoque baixo` : ''}</span>{(counts.overdue || counts.dueSoon) && <Link to="/vendas">Ver vendas</Link>}{counts.lowStock > 0 && <Link to="/estoque">Ver estoque</Link>}</div>
 }
 
 const navigation = [
   { label: 'Dashboard', path: '/', glyph: '▦' },
-  { label: 'Pedidos', path: '/pedidos', glyph: '▤' },
   { label: 'Vendas externas', path: '/vendas', glyph: '↗' },
   { label: 'Clientes', path: '/clientes', glyph: '♧' },
   { label: 'Financeiro', path: '/financeiro', glyph: '◉' },
@@ -89,7 +88,6 @@ function GlobalNavigationSearch({ onNavigate, accountName }) {
       ...item,
       keywords: `${item.label} ${item.path.replace('/', ' ')} ${({
         '/': 'inicio painel principal',
-        '/pedidos': 'encomendas ordens acompanhar',
         '/vendas': 'orçamento orcamento comprovante venda externa',
         '/clientes': 'consumidor cadastro contato cpf',
         '/financeiro': 'contas despesas receitas dinheiro',
@@ -101,7 +99,7 @@ function GlobalNavigationSearch({ onNavigate, accountName }) {
         '/configuracoes': 'configuração empresa perfil dados',
       })[item.path] || ''}`,
     }))
-    if (!term) return pages.filter((item) => ['/', '/pedidos', '/vendas', '/produtos', '/estoque'].includes(item.path)).slice(0, 6)
+    if (!term) return pages.filter((item) => ['/', '/vendas', '/produtos', '/estoque'].includes(item.path)).slice(0, 6)
 
     const records = [
       ...sales.map((sale) => {

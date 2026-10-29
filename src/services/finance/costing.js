@@ -10,8 +10,9 @@ export function calculateWeightedUnitCost(stockQuantity, unitCost, purchaseQuant
 }
 
 export function suggestSalePrice(cost, marginPercent, feePercent) {
-  const divisor = 1 - (Number(marginPercent || 0) + Number(feePercent || 0)) / 100
-  return divisor > 0 ? Number(cost || 0) / divisor : null
+  const feeDivisor = 1 - Number(feePercent || 0) / 100
+  if (feeDivisor <= 0) return null
+  return Number(cost || 0) * (1 + Number(marginPercent || 0) / 100) / feeDivisor
 }
 
 export function calculatePrintingEnergyCost(printHours, electricityRate, powerWatts = 220) {

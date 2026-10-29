@@ -153,7 +153,7 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
     if (discount > subtotal) return setFormError('O desconto não pode ser maior que o subtotal.')
     if (total <= 0) return setFormError('O total da venda precisa ser maior que zero.')
     if (!isQuote && received > total) return setFormError('O valor recebido não pode ser maior que o total da venda.')
-    if (form.deliveryMethod === 'delivery' && !form.address.trim()) return setFormError('Informe o endereço para a entrega.')
+    if (form.deliveryMethod === 'delivery' && !form.address.trim() && !(sale && !sale.delivery?.address)) return setFormError('Informe o endereço para a entrega.')
 
     setSaving(true)
     try {
@@ -252,7 +252,7 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
               <label>CPF <span className="optional-label">opcional</span><input inputMode="numeric" maxLength={18} value={formatBrazilianTaxId(form.taxId)} onChange={(event) => change('taxId', formatBrazilianTaxId(event.target.value))} placeholder="000.000.000-00" /></label>
               <label>WhatsApp / telefone<input type="tel" inputMode="tel" maxLength={16} value={formatBrazilianPhone(form.phone)} onChange={(event) => change('phone', formatBrazilianPhone(event.target.value))} placeholder="(00) 00000-0000" /></label>
               <label>E-mail <span className="optional-label">opcional</span><input type="email" maxLength={160} value={form.email} onChange={(event) => change('email', event.target.value)} placeholder="cliente@email.com" /></label>
-              <label>Canal da venda <b>*</b><select value={form.channel} onChange={(event) => change('channel', event.target.value)}><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="mercadolivre">Mercado Livre (manual)</option><option value="presencial">Presencial</option><option value="outro">Outro</option></select></label>
+              <label>Canal da venda <b>*</b><select value={form.channel} onChange={(event) => change('channel', event.target.value)}>{form.channel === 'mercadolivre' && <option value="mercadolivre">Mercado Livre (registro antigo)</option>}<option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="presencial">Presencial</option><option value="outro">Outro</option></select></label>
               <label>Tipo de pedido<select value={form.orderType} onChange={(event) => change('orderType', event.target.value)}><option value="physical">Produto físico</option><option value="online">Pedido online</option></select></label>
               <label>{isQuote ? 'Data do orçamento' : 'Data da venda'} <b>*</b><input type="date" required value={form.soldAt} onChange={(event) => change('soldAt', event.target.value)} /></label>
               {isQuote && <label>Orçamento válido até <b>*</b><input type="date" required min={form.soldAt} value={form.validUntil} onChange={(event) => change('validUntil', event.target.value)} /></label>}
@@ -289,7 +289,7 @@ function SaleForm({ sale, quote, mode, business, onClose, onSaved }) {
             <div className="payment-summary"><span>Status do pagamento</span><strong className={`status-pill payment-${paymentStatus(total, received)}`}>{paymentLabels[paymentStatus(total, received)]}</strong><small>{due > 0 ? `${money(due)} pendente` : 'Venda totalmente recebida'}</small></div></>}
               <label>Entrega / retirada<select value={form.deliveryMethod} onChange={(event) => change('deliveryMethod', event.target.value)}><option value="delivery">Entrega</option><option value="pickup">Retirada pelo cliente</option></select></label>
               <label>Prazo de entrega<input type="date" value={form.dueDate} onChange={(event) => change('dueDate', event.target.value)} /><small>Usado para alertas de pedidos próximos do prazo.</small></label>
-              <label>Status da produção<select value={form.productionStatus} onChange={(event) => change('productionStatus', event.target.value)}><option value="not_started">Ainda não começou</option><option value="preparing">Em preparo</option><option value="producing">Em produção</option><option value="ready">Produção concluída</option></select><small>Pedidos em preparo ou produção aparecem na fila de Produção.</small></label>
+              <label>Status da produção<select value={form.productionStatus} onChange={(event) => change('productionStatus', event.target.value)}><option value="not_started">Ainda não começou</option><option value="preparing">Em preparo</option><option value="producing">Em produção</option><option value="ready">Produção concluída</option></select><small>Todas as vendas ficam em Produção para você acompanhar e marcar como concluídas.</small></label>
               <label>Status da entrega<select value={form.deliveryStatus} onChange={(event) => change('deliveryStatus', event.target.value)}><option value="pending">A combinar</option><option value="preparing">Em preparação</option><option value="ready">Pronto</option><option value="shipped">Enviado</option><option value="delivered">Entregue</option><option value="pickup">Retirada</option></select></label>
             </div>
             {form.deliveryMethod === 'delivery' && <div className="form-grid address-grid">
@@ -442,7 +442,7 @@ export default function ExternalSalesPage() {
 
   return (
     <div className="page-stack sales-page">
-      <div className="page-intro sales-intro"><div><p className="eyebrow">COMERCIAL</p><h2>Vendas e orçamentos</h2><p>Crie orçamentos profissionais e registre as vendas de todos os canais.</p></div><div className="sales-intro-actions"><button className="button button-secondary" onClick={startNewQuote}>＋ Novo orçamento</button><button className="button button-primary new-sale-button" onClick={startNewSale}>＋ Nova venda</button></div></div>
+      <div className="page-intro sales-intro"><div><p className="eyebrow">COMERCIAL</p><h2>Vendas externas</h2><p>Registre e acompanhe as vendas feitas por canais externos.</p></div><div className="sales-intro-actions"><button className="button button-secondary" onClick={startNewQuote}>＋ Novo orçamento</button><button className="button button-primary new-sale-button" onClick={startNewSale}>＋ Nova venda externa</button></div></div>
 
       {activeTab === 'sales' && <div className="sales-summary-grid">
         <article className="sales-summary-card"><span>Vendas ativas</span><strong>{activeSales.length}</strong><small>Registros não cancelados</small></article>
@@ -499,7 +499,7 @@ export default function ExternalSalesPage() {
         })}</tbody></table></div>}
       </section>}
       <div className="info-banner"><span>i</span><p>Orçamentos e comprovantes são documentos comerciais para controle e apresentação ao cliente; não substituem nota fiscal. CPF/CNPJ pode ser adicionado depois nas Configurações.</p></div>
-      {formOpen && <SaleForm sale={formSale} quote={formQuote} mode={formMode} business={business} onClose={() => { setFormOpen(false); setFormSale(null); setFormQuote(null) }} onSaved={notify} />}
+      {formOpen && <SaleForm key={formSale?.id ?? formQuote?.id ?? formMode} sale={formSale} quote={formQuote} mode={formMode} business={business} onClose={() => { setFormOpen(false); setFormSale(null); setFormQuote(null) }} onSaved={notify} />}
       {toast && <div className="toast-success" role="status"><span>✓</span>{toast}</div>}
     </div>
   )

@@ -60,7 +60,7 @@ Use os valores da configuração do app Web em **Firebase Console → Project se
 
 Por enquanto, a integração com o Mercado Livre está desativada na interface. Cadastre os produtos em **Produtos → Novo produto**, escolhendo o grupo **Vendas online (manual)** ou **Físicos**. Informe nome, custo, preço e saldo inicial; o SKU de produtos físicos é gerado automaticamente ao salvar. Produtos online podem receber um código manual. Ajustes posteriores de estoque ficam na área **Estoque**. Produtos arquivados ficam na aba **Arquivados** em Produtos; é possível excluí-los permanentemente do cadastro por essa lista. A exclusão remove o cadastro, mas preserva os históricos de vendas e movimentações de estoque.
 
-Registre pedidos e vendas, inclusive os feitos no Mercado Livre, em **Vendas**, selecionando **Mercado Livre (manual)** como canal. Esses dados são lançados somente no sistema e não são sincronizados com a plataforma.
+Registre vendas externas feitas por WhatsApp, Instagram, presencialmente ou por outro canal em **Vendas externas**. A integração com marketplaces está pausada; os registros antigos continuam no histórico.
 
 ## Materiais, ficha técnica e preço sugerido
 
@@ -70,7 +70,7 @@ Compras antigas ainda não vinculadas ao estoque podem ser integradas pelo **His
 
 No **Estoque**, use **Editar estoque** para corrigir a quantidade física e o mínimo de um material. No **Histórico de lançamentos**, use **Editar quantidade** em uma compra vinculada para corrigir a quantidade/unidade da compra; o estoque e o custo médio são recalculados sem duplicar a despesa. Uma correção que deixaria o saldo negativo é recusada.
 
-Em **Produtos → Novo produto**, adicione os materiais e o consumo por peça. Para materiais em m², informe largura e comprimento da peça em mm, cm ou m. Por exemplo, para um rolo de 1 kg, cadastre 1 kg por R$ 68,40; o custo unitário será R$ 0,0684/g e o uso de 35 g custará R$ 2,394 antes do arredondamento monetário. Se uma folha rende cinco cartões, informe 0,2 folha por cartão. Informe também o tempo de impressão por peça e a tarifa R$/kWh: a energia é calculada como `horas × 0,22 kWh × tarifa`, usando a potência fixa de 220 W. A fila de **Produção** multiplica o tempo e a energia do produto pela quantidade do pedido. Mão de obra pode ser calculada por horas × valor/hora. Margem e taxas são usadas na fórmula `custo / (1 - margem - taxas)` para sugerir preço. O preço continua editável e o estoque de insumos não é baixado automaticamente ao registrar vendas.
+Em **Produtos → Novo produto**, cadastre o filamento em **Financeiro → Estoque de materiais** com unidade em gramas (pode comprar em kg; o sistema converte). No produto, selecione o filamento, informe os gramas usados por peça e o tempo de impressão; o custo do filamento e a energia entram automaticamente no custo e no preço sugerido. A margem sugerida começa em 50%, pode ser ajustada sem limite máximo e é aplicada como percentual sobre o custo; as taxas são consideradas separadamente no preço sugerido. Use a ficha técnica para manter embalagem, chaveiro e outros materiais já cadastrados no custo por peça. Para materiais em m², informe largura e comprimento da peça em mm, cm ou m. A fila de **Produção** multiplica o tempo e a energia do produto pela quantidade do pedido. Mão de obra pode ser calculada por horas × valor/hora. O preço continua editável e o estoque de insumos não é baixado automaticamente ao registrar vendas.
 
 ## Orçamentos e comprovantes comerciais
 

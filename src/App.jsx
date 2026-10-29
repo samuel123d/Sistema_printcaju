@@ -1,11 +1,10 @@
-﻿import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
 import Brand from './components/Brand.jsx'
 import BrandLoader from './components/BrandLoader.jsx'
 import AdminLayout from './layouts/AdminLayout.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
-import OrdersPage from './pages/OrdersPage.jsx'
 import ExternalSalesPage from './pages/ExternalSalesPage.jsx'
 import PlannedPage from './pages/PlannedPage.jsx'
 import ProductionPage from './pages/ProductionPage.jsx'
@@ -29,8 +28,8 @@ function RouteContent() {
       <main className="auth-screen">
         <section className="auth-card">
           <Brand />
-          <h1>Acesso não autorizado</h1>
-          <p>Esta conta ainda não tem a função admin. No Firestore, crie ou atualize `users/{UID}` com o campo `role` igual a `admin` para liberar o painel.</p>
+          <h1>Acesso n�o autorizado</h1>
+          <p>Esta conta ainda n�o tem a fun��o admin. No Firestore, crie ou atualize `users/{UID}` com o campo `role` igual a `admin` para liberar o painel.</p>
           <button className="button button-secondary button-full" onClick={signOut}>
             Sair da conta
           </button>
@@ -44,7 +43,7 @@ function RouteContent() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route element={user ? <AdminLayout /> : <Navigate to="/login" replace />}>
         <Route index element={<DashboardPage />} />
-        <Route path="/pedidos" element={<OrdersPage />} />
+        <Route path="/pedidos" element={<Navigate to="/vendas" replace />} />
         <Route path="/vendas" element={<ExternalSalesPage />} />
         <Route path="/clientes" element={<ClientsPage />} />
         <Route path="/financeiro" element={<FinancePage />} />

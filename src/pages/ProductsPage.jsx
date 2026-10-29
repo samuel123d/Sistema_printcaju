@@ -7,16 +7,16 @@ import { archiveProduct, createProduct, deleteArchivedProduct, updateProduct } f
 import { calculatePrintingEnergyCost, calculateProductCost, suggestSalePrice } from '../services/finance/costing.js'
 import { formatUnit } from '../services/finance/units.js'
 
-const blankProduct = (type) => ({ name: '', sku: '', type, category: '', description: '', cost: '', price: '', quantity: '0', minStock: '0', recipe: [], energyCost: '0', printHours: '0', electricityRate: '0', laborHours: '0', laborRate: '0', marginPercent: '30', feePercent: '0' })
+const blankProduct = (type) => ({ name: '', sku: '', type, category: '', description: '', cost: '', price: '', quantity: '0', minStock: '0', recipe: [], filamentMaterialId: '', filamentColor: '#000000', filamentGrams: '0', filamentUnitCost: '0', otherFixedCost: '0', energyCost: '0', printHours: '0', electricityRate: '0', laborHours: '0', laborRate: '0', marginPercent: '50', feePercent: '0' })
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0)
 const unitCostMoney = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 6 }).format(Number(value) || 0)
 const amount = (value) => Number.parseFloat(String(value ?? '0').replace(',', '.')) || 0
 const dimensionFactors = { mm: 0.001, cm: 0.01, m: 1 }
-const typeName = (type) => type === 'mercadolivre' ? 'Venda online (manual)' : 'Físico'
+const typeName = () => 'Produto 3D'
 
 function ProductForm({ product, type, materials, materialsLoading, materialsError, onClose, onSaved }) {
   const { workspaceUid } = useAuth()
-  const [form, setForm] = useState(() => product ? { ...blankProduct(product.type), ...product, cost: String(product.cost ?? ''), price: String(product.price ?? ''), quantity: String(product.quantity ?? 0), minStock: String(product.minStock ?? 0), recipe: Array.isArray(product.recipe) ? product.recipe : [], energyCost: String(product.manualEnergyCost ?? product.energyCost ?? 0), printHours: String(product.printHours ?? 0), electricityRate: String(product.electricityRate ?? 0), laborHours: String(product.laborHours ?? 0), laborRate: String(product.laborRate ?? 0), marginPercent: String(product.marginPercent ?? 30), feePercent: String(product.feePercent ?? 0) } : blankProduct(type))
+  const [form, setForm] = useState(() => product ? { ...blankProduct(product.type), ...product, cost: String(product.cost ?? ''), price: String(product.price ?? ''), quantity: String(product.quantity ?? 0), minStock: String(product.minStock ?? 0), recipe: Array.isArray(product.recipe) ? product.recipe : [], filamentMaterialId: product.filamentMaterialId ?? '', filamentColor: product.filamentColor ?? '', filamentGrams: String(product.filamentGrams ?? 0), filamentUnitCost: String(product.filamentUnitCost ?? 0), otherFixedCost: String(product.otherFixedCost ?? (!product.recipe?.length && !product.filamentGrams && !product.printHours && !product.energyCost && !product.laborHours ? product.cost ?? 0 : 0)), energyCost: String(product.manualEnergyCost ?? product.energyCost ?? 0), printHours: String(product.printHours ?? 0), electricityRate: String(product.electricityRate ?? 0), laborHours: String(product.laborHours ?? 0), laborRate: String(product.laborRate ?? 0), marginPercent: String(product.marginPercent ?? 50), feePercent: String(product.feePercent ?? 0) } : blankProduct(type))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
@@ -29,13 +29,19 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
     return { ...line, material, name: material?.name || line.name || 'Material arquivado', unit: material?.baseUnit || line.unit, quantity, unitCost: Number(material?.unitCost ?? line.unitCost) || 0 }
   })
   const energyCost = amount(form.energyCost)
+  const filamentMaterial = materials.find((item) => item.id === form.filamentMaterialId)
+  const filamentGrams = amount(form.filamentGrams)
+  const filamentUnitCost = Number(filamentMaterial?.unitCost ?? form.filamentUnitCost) || 0
+  const filamentCost = filamentGrams * filamentUnitCost
+  const otherFixedCost = amount(form.otherFixedCost)
   const printHours = amount(form.printHours)
   const electricityRate = amount(form.electricityRate)
   const printingEnergyCost = calculatePrintingEnergyCost(printHours, electricityRate)
+  const resolvedPrintCost = energyCost > 0 ? energyCost : printingEnergyCost
   const laborHours = amount(form.laborHours)
   const laborRate = amount(form.laborRate)
-  const hasCostBreakdown = form.recipe.length > 0 || energyCost > 0 || printHours > 0 || laborHours > 0
-  const calculatedCost = hasCostBreakdown ? calculateProductCost({ recipe: recipeLines, energyCost: energyCost + printingEnergyCost, laborHours, laborRate }) : amount(form.cost)
+  const hasCostBreakdown = form.recipe.length > 0 || filamentGrams > 0 || otherFixedCost > 0 || energyCost > 0 || printHours > 0 || laborHours > 0
+  const calculatedCost = hasCostBreakdown ? calculateProductCost({ recipe: recipeLines, energyCost: resolvedPrintCost + filamentCost + otherFixedCost, laborHours, laborRate }) : amount(form.cost)
   const marginPercent = amount(form.marginPercent)
   const feePercent = amount(form.feePercent)
   const suggestedPrice = suggestSalePrice(calculatedCost, marginPercent, feePercent)
@@ -55,8 +61,10 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
     event.preventDefault()
     setError('')
     if (!form.name.trim()) return setError('Informe o nome do produto.')
-    if ([form.quantity, form.minStock, form.cost, form.price, form.energyCost, form.printHours, form.electricityRate, form.laborHours, form.laborRate, form.marginPercent, form.feePercent].some((value) => !Number.isFinite(amount(value)) || amount(value) < 0)) return setError('Estoque, custos, taxas e margem precisam ser números iguais ou maiores que zero.')
-    if (marginPercent + feePercent >= 100) return setError('A soma da margem e das taxas precisa ser menor que 100%.')
+    if ([form.quantity, form.minStock, form.cost, form.price, form.filamentGrams, form.otherFixedCost, form.energyCost, form.printHours, form.electricityRate, form.laborHours, form.laborRate, form.marginPercent, form.feePercent].some((value) => !Number.isFinite(amount(value)) || amount(value) < 0)) return setError('Estoque, custos, taxas e margem precisam ser números iguais ou maiores que zero.')
+    if (filamentGrams > 0 && !form.filamentMaterialId) return setError('Selecione o filamento cadastrado no Financeiro para calcular o custo por grama.')
+    if (filamentMaterial && filamentMaterial.baseUnit !== 'g') return setError('Cadastre o filamento com unidade base em gramas (g).')
+    if (feePercent >= 100) return setError('As taxas da venda precisam ser menores que 100%.')
     if (form.recipe.some((line, index) => !line.materialId || (recipeLines[index].material?.baseUnit === 'm2'
       ? !Number.isFinite(amount(line.width)) || amount(line.width) <= 0 || !Number.isFinite(amount(line.length)) || amount(line.length) <= 0 || recipeLines[index].quantity <= 0
       : !Number.isFinite(amount(line.quantity)) || amount(line.quantity) <= 0))) return setError('Selecione um material e informe o consumo ou as dimensões maiores que zero em cada linha da ficha técnica.')
@@ -73,7 +81,14 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
       quantity: Number(form.quantity) || 0,
       minStock: Number(form.minStock) || 0,
       recipe: recipeLines.map((line) => ({ materialId: line.materialId, name: line.name, quantity: Number(line.quantity.toFixed(8)), unit: line.unit, unitCost: line.unitCost, ...(line.unit === 'm2' ? { width: Number(line.width), length: Number(line.length), dimensionUnit: line.dimensionUnit || 'cm' } : {}) })),
-      energyCost: Number((energyCost + printingEnergyCost).toFixed(4)),
+      filamentMaterialId: form.filamentMaterialId,
+      filamentMaterialName: filamentMaterial?.name || product?.filamentMaterialName || '',
+      filamentColor: form.filamentColor,
+      filamentGrams: Number(filamentGrams.toFixed(3)),
+      filamentUnitCost: Number(filamentUnitCost.toFixed(8)),
+      filamentCost: Number(filamentCost.toFixed(4)),
+      otherFixedCost: Number(otherFixedCost.toFixed(4)),
+      energyCost: Number(resolvedPrintCost.toFixed(4)),
       manualEnergyCost: Number(energyCost.toFixed(4)),
       printHours: Number(printHours.toFixed(4)),
       electricityRate: Number(electricityRate.toFixed(4)),
@@ -104,6 +119,7 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
   <section className="product-cost-section">
     <div className="form-section-title"><span>01</span><div><h3>Ficha técnica e custos</h3><p>Selecione materiais cadastrados no Financeiro e informe quanto cada peça consome.</p></div></div>
     {materialsError && <div className="sales-error" role="alert">{materialsError}</div>}
+    <div className="form-grid form-grid-two"><label>Filamento usado<select value={form.filamentMaterialId} onChange={(event) => set('filamentMaterialId', event.target.value)}><option value="">Selecione o filamento</option>{form.filamentMaterialId && !materials.some((item) => item.id === form.filamentMaterialId) && <option value={form.filamentMaterialId}>{product?.filamentMaterialName || 'Filamento salvo'} · custo salvo</option>}{materials.filter((material) => material.baseUnit === 'g').map((material) => <option key={material.id} value={material.id}>{material.name} · {unitCostMoney(material.unitCost)}/g</option>)}</select></label><label>Cor do filamento<input type="color" value={form.filamentColor || '#000000'} onChange={(event) => set('filamentColor', event.target.value)} /><small>Escolha a cor usada para imprimir esta peça.</small></label><label>Filamento gasto (gramas)<input type="number" min="0" step="0.1" value={form.filamentGrams} onChange={(event) => set('filamentGrams', event.target.value)} /><small>Custo do filamento nesta peça: {money(filamentCost)}.</small></label></div>
     {materialsLoading ? <p className="product-cost-hint">Carregando materiais cadastrados no Financeiro…</p> : materials.length === 0 && form.recipe.length === 0 ? <p className="product-cost-hint">Cadastre primeiro seus materiais em Financeiro → Estoque de materiais.</p> : <div className="product-recipe-list">{form.recipe.map((line, index) => <div className={`product-recipe-row ${line.material?.baseUnit === 'm2' ? 'product-recipe-area-row' : ''}`} key={`${line.materialId}-${index}`}>
       <label>Material<select required value={line.materialId} onChange={(event) => changeRecipe(index, 'materialId', event.target.value)}><option value="">Selecione um material</option>{line.materialId && !materials.some((item) => item.id === line.materialId) && <option value={line.materialId}>{line.name || 'Material arquivado'} · custo salvo</option>}{materials.map((material) => <option key={material.id} value={material.id}>{material.name} · {unitCostMoney(material.unitCost)}/{formatUnit(material.baseUnit)}</option>)}</select></label>
       {line.material?.baseUnit === 'm2' ? <>
@@ -117,13 +133,14 @@ function ProductForm({ product, type, materials, materialsLoading, materialsErro
     <button type="button" className="button button-secondary" onClick={() => set('recipe', [...form.recipe, { materialId: '', quantity: '', unitCost: 0 }])}>＋ Adicionar material</button>
     <p className="product-cost-hint">Use a unidade base do material. Para material em m², informe largura e comprimento; mm, cm e m são convertidos automaticamente.</p></div>}
     <div className="form-grid form-grid-two product-overhead-grid">
-      <label>Tempo de impressão por peça (horas)<input type="number" min="0" step="0.01" value={form.printHours} onChange={(event) => set('printHours', event.target.value)} /><small>Máquina calculada a 220 W (0,22 kWh por hora).</small></label>
-      <label>Tarifa de energia (R$/kWh)<input type="number" min="0" step="0.0001" value={form.electricityRate} onChange={(event) => set('electricityRate', event.target.value)} /><small>Energia estimada por peça: {money(printingEnergyCost)}.</small></label>
-      <label>Outros custos de energia por peça (R$)<input type="number" min="0" step="0.0001" value={form.energyCost} onChange={(event) => set('energyCost', event.target.value)} /></label>
+      <label>Tempo de impressão por peça (horas)<input type="number" min="0" step="0.01" value={form.printHours} onChange={(event) => set('printHours', event.target.value)} /><small>Usado no cálculo da energia da impressão (220 W).</small></label>
+      <label>Tarifa de energia (R$/kWh)<input type="number" min="0" step="0.0001" value={form.electricityRate} onChange={(event) => set('electricityRate', event.target.value)} /><small>Estimativa pela tarifa: {money(printingEnergyCost)}. O custo manual da impressão tem prioridade.</small></label>
+      <label>Custo da impressão por peça (R$)<input type="number" min="0" step="0.01" value={form.energyCost} onChange={(event) => set('energyCost', event.target.value)} /><small>Se informar um valor, ele substitui a estimativa de energia pela tarifa.</small></label>
+      <label>Embalagem, chaveiro e outros custos fixos (R$)<input type="number" min="0" step="0.01" value={form.otherFixedCost} onChange={(event) => set('otherFixedCost', event.target.value)} /><small>Inclua aqui custos fixos por peça que não estejam na ficha técnica.</small></label>
       <label>Tempo de mão de obra (horas)<input type="number" min="0" step="0.01" value={form.laborHours} onChange={(event) => set('laborHours', event.target.value)} /></label>
       <label>Custo da mão de obra por hora (R$)<input type="number" min="0" step="0.01" value={form.laborRate} onChange={(event) => set('laborRate', event.target.value)} /></label>
       <label>Taxas da venda (%)<input type="number" min="0" max="99.99" step="0.01" value={form.feePercent} onChange={(event) => set('feePercent', event.target.value)} /></label>
-      <label>Margem de lucro desejada (%)<input type="number" min="0" max="99.99" step="0.01" value={form.marginPercent} onChange={(event) => set('marginPercent', event.target.value)} /></label>
+      <label>Margem de lucro desejada (%)<input type="number" min="0" step="0.01" value={form.marginPercent} onChange={(event) => set('marginPercent', event.target.value)} /><small>Sem limite máximo; calculada como percentual sobre o custo.</small></label>
     </div>
     <div className="product-cost-summary"><span>Custo calculado por peça<strong>{money(calculatedCost)}</strong></span><span>Preço sugerido<strong>{suggestedPrice === null ? 'Reduza margem ou taxas' : money(suggestedPrice)}</strong></span>{suggestedPrice !== null && <button type="button" className="button button-secondary" onClick={() => set('price', suggestedPrice.toFixed(2))}>Usar preço sugerido</button>}</div>
   </section>
@@ -136,15 +153,14 @@ export default function ProductsPage() {
   const { workspaceUid } = useAuth()
   const { products, loading, error } = useProducts()
   const { materials, loading: materialsLoading, error: materialsError } = useFinancialMaterials()
-  const [type, setType] = useState('mercadolivre')
+  const type = 'fisico'
   const [showArchived, setShowArchived] = useState(false)
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [actionError, setActionError] = useState('')
-  const list = useMemo(() => products.filter((product) => (showArchived ? product.active === false : product.active !== false && product.type === type) && `${product.name} ${product.sku} ${product.category}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))), [products, type, search, showArchived])
-  const counts = { mercadolivre: products.filter((item) => item.active !== false && item.type === 'mercadolivre').length, fisico: products.filter((item) => item.active !== false && item.type === 'fisico').length }
+  const list = useMemo(() => products.filter((product) => (showArchived ? product.active === false : product.active !== false) && `${product.name} ${product.sku} ${product.category}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))), [products, search, showArchived])
   const archivedCount = products.filter((item) => item.active === false).length
 
   useEffect(() => {
@@ -153,7 +169,6 @@ export default function ProductsPage() {
     const product = products.find((item) => item.id === productId && item.active !== false)
     navigate(location.pathname, { replace: true, state: null })
     if (product) {
-      setType(product.type)
       setShowArchived(false)
       setEditing(product)
       setFormOpen(true)
@@ -182,11 +197,11 @@ export default function ProductsPage() {
   }
 
   return <div className="page-stack">
-    <div className="page-intro"><div><p className="eyebrow">CATÁLOGO</p><h2>Produtos</h2><p>Cadastre manualmente produtos para vendas online e produtos físicos.</p></div><button className="button button-primary" onClick={() => { setEditing(null); setFormOpen(true) }}>＋ Novo produto</button></div>
-    <div className="product-tabs" role="tablist" aria-label="Tipo de produto"><button role="tab" aria-selected={!showArchived && type === 'mercadolivre'} className={!showArchived && type === 'mercadolivre' ? 'product-tab-active' : ''} onClick={() => { setShowArchived(false); setType('mercadolivre') }}><span>Vendas online (manual)</span><b>{counts.mercadolivre}</b></button><button role="tab" aria-selected={!showArchived && type === 'fisico'} className={!showArchived && type === 'fisico' ? 'product-tab-active' : ''} onClick={() => { setShowArchived(false); setType('fisico') }}><span>Físicos</span><b>{counts.fisico}</b></button><button role="tab" aria-selected={showArchived} className={showArchived ? 'product-tab-active' : ''} onClick={() => setShowArchived(true)}><span>Arquivados</span><b>{archivedCount}</b></button></div>
+    <div className="page-intro"><div><p className="eyebrow">CATÁLOGO 3D</p><h2>Produtos</h2><p>Cadastre peças, tempo de impressão, consumo de filamento e custos por produto.</p></div><button className="button button-primary" onClick={() => { setEditing(null); setFormOpen(true) }}>＋ Novo produto</button></div>
+    <div className="product-tabs" role="tablist" aria-label="Produtos"><button role="tab" aria-selected={!showArchived} className={!showArchived ? 'product-tab-active' : ''} onClick={() => setShowArchived(false)}><span>Produtos 3D</span><b>{products.filter((item) => item.active !== false).length}</b></button><button role="tab" aria-selected={showArchived} className={showArchived ? 'product-tab-active' : ''} onClick={() => setShowArchived(true)}><span>Arquivados</span><b>{archivedCount}</b></button></div>
     <section className="panel products-panel"><div className="products-toolbar"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por produto, SKU ou categoria" /></label><span className="count-chip">{list.length} {list.length === 1 ? 'produto' : 'produtos'}</span></div>
       {error && <div className="sales-error" role="alert">{error}</div>}{materialsError && <div className="sales-error" role="alert">{materialsError}</div>}{actionError && <div className="sales-error" role="alert">{actionError}</div>}
-      {loading ? <div className="sales-loading">Carregando produtos…</div> : <div className="sales-table-scroll"><table className="sales-table products-table"><thead><tr><th>Produto</th><th>SKU</th><th>Estoque</th><th>Custo</th><th>Preço</th><th>Ações</th></tr></thead><tbody>{list.map((product) => <tr key={product.id} className={Number(product.quantity) <= Number(product.minStock) ? 'stock-low-row' : ''}><td><strong className="table-primary-text">{product.name}</strong><small>{showArchived ? `${product.type === 'fisico' ? 'Físico' : 'Vendas online'} · ` : ''}{product.category || 'Sem categoria'}{showArchived ? ' · Arquivado' : ''}</small></td><td>{product.sku || '—'}</td><td><strong>{Number(product.quantity) || 0}</strong><small>mínimo {Number(product.minStock) || 0}</small></td><td>{money(product.cost)}</td><td>{money(product.price)}</td><td><div className="sale-actions">{showArchived ? <button className="cancel-action" onClick={() => removeArchived(product)}>Excluir do banco</button> : <><button onClick={() => { setEditing(product); setFormOpen(true) }}>Editar</button><button className="cancel-action" onClick={() => archive(product)}>Arquivar</button></>}</div></td></tr>)}{list.length === 0 && <tr><td colSpan="6"><div className="table-empty"><strong>{search ? 'Nenhum produto encontrado' : showArchived ? 'Nenhum produto arquivado' : `Nenhum produto ${typeName(type).toLowerCase()} cadastrado`}</strong><span>{showArchived ? 'Produtos arquivados aparecerão aqui.' : 'Use “Novo produto” para cadastrar neste grupo.'}</span></div></td></tr>}</tbody></table></div>}
+      {loading ? <div className="sales-loading">Carregando produtos…</div> : <div className="sales-table-scroll"><table className="sales-table products-table"><thead><tr><th>Produto</th><th>SKU</th><th>Estoque</th><th>Custo</th><th>Preço</th><th>Ações</th></tr></thead><tbody>{list.map((product) => <tr key={product.id} className={Number(product.quantity) <= Number(product.minStock) ? 'stock-low-row' : ''}><td>{product.filamentColor && <span aria-label={`Filamento ${product.filamentColor}`} title={`Cor do filamento: ${product.filamentColor}`} style={{ display: 'inline-block', width: 11, height: 11, marginRight: 6, border: '1px solid #aaa', borderRadius: '50%', backgroundColor: product.filamentColor, verticalAlign: 'middle' }} />}<strong className="table-primary-text">{product.name}</strong><small>{showArchived ? 'Produto 3D · ' : ''}{product.category || 'Sem categoria'}{showArchived ? ' · Arquivado' : ''}</small></td><td>{product.sku || '—'}</td><td><strong>{Number(product.quantity) || 0}</strong><small>mínimo {Number(product.minStock) || 0}</small></td><td>{money(product.cost)}</td><td>{money(product.price)}</td><td><div className="sale-actions">{showArchived ? <button className="cancel-action" onClick={() => removeArchived(product)}>Excluir do banco</button> : <><button onClick={() => { setEditing(product); setFormOpen(true) }}>Editar</button><button className="cancel-action" onClick={() => archive(product)}>Arquivar</button></>}</div></td></tr>)}{list.length === 0 && <tr><td colSpan="6"><div className="table-empty"><strong>{search ? 'Nenhum produto encontrado' : showArchived ? 'Nenhum produto arquivado' : `Nenhum produto ${typeName(type).toLowerCase()} cadastrado`}</strong><span>{showArchived ? 'Produtos arquivados aparecerão aqui.' : 'Use “Novo produto” para cadastrar neste grupo.'}</span></div></td></tr>}</tbody></table></div>}
     </section>
     {formOpen && <ProductForm product={editing} type={type} materials={materials} materialsLoading={materialsLoading} materialsError={materialsError} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={saved} />}{toast && <div className="toast-success" role="status">{toast}</div>}
   </div>
